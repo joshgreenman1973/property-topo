@@ -120,6 +120,24 @@ for p in PROPS:
     print(f"    buildings: {len(buildings)} -> " +
           ", ".join(f"{b['occ']} {b['sqft']}sf h={b['height']}m" for b in buildings))
 
+    # 6. aerial ortho (Esri World Imagery) for the photo drape + tree detection
+    ao = ("https://services.arcgisonline.com/arcgis/rest/services/World_Imagery/MapServer/export"
+          f"?bbox={bbox}&bboxSR={p['utm_epsg']}&size={size},{size}&imageSR={p['utm_epsg']}&format=jpg&f=image")
+    jpg = urllib.request.urlopen(urllib.request.Request(ao, headers={'User-Agent': 'topo/1.0'}), timeout=90).read()
+    rgb = np.asarray(Image.open(io.BytesIO(jpg)).convert('RGB')).astype(np.float32)  # row0 = north, matches DEM
+    R, G, B = rgb[..., 0], rgb[..., 1], rgb[..., 2]
+    exg = 2*G - R - B                       # excess-green vegetation index
+    gray = (R + G + B) / 3.0
+    gx = np.abs(np.diff(gray, axis=1, prepend=gray[:, :1]))
+    gy = np.abs(np.diff(gray, axis=0, prepend=gray[:1, :]))
+    tex = gx + gy                           # local roughness: tree canopy is rough, mown lawn is smooth
+    def smooth(a): return (a + np.roll(a, 1, 0) + np.roll(a, -1, 0) + np.roll(a, 1, 1) + np.roll(a, -1, 1)) / 5.0
+    tex_s = smooth(smooth(tex))
+    veg = exg > 22
+    thr = float(np.percentile(tex_s[veg], 33)) if veg.any() else 0.0
+    tree = (veg & (tex_s > thr)).astype(np.uint8)   # green AND textured -> woody canopy
+    print(f"    aerial {len(jpg)//1024} KB  tree cover {tree.mean()*100:.0f}% of tile")
+
     out[p["id"]] = {
         "id": p["id"], "label": p["label"], "town": p["town"],
         "acres": round(acres, 2), "acres_assessor": p["acres_src"],
@@ -129,6 +147,8 @@ for p in PROPS:
         "poly_mesh": poly_mesh,          # rings in mesh xz
         "poly_lonlat": rings_ll,         # rings in lon/lat
         "buildings": buildings,          # footprints (mesh xz) + heights
+        "aerial_b64": base64.b64encode(jpg).decode(),        # ortho photo (jpg) for the drape
+        "tree_b64": base64.b64encode(tree.tobytes()).decode(),  # uint8 tree mask, row0=north
         "heights_b64": base64.b64encode(arr.astype('<f4').tobytes()).decode(),
     }
 

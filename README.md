@@ -15,6 +15,8 @@ labels; hover the terrain for live latitude / longitude / elevation.
 | MA parcel boundary | [MassGIS Standardized Assessors' Parcels (L3)](https://www.mass.gov/info-details/massgis-data-property-tax-parcels) | Boundary polygon + assessor record (address, town, acreage). |
 | NY parcel boundary | [NYS Tax Parcels Public](https://gis.ny.gov/parcels) (Orange County, 2025 roll) | Boundary polygon + assessor record. |
 | Building footprints | [FEMA USA Structures](https://gis-fema.hub.arcgis.com/pages/usa-structures) (Oak Ridge / USGS) | Footprints >450 sq ft with LiDAR-derived `HEIGHT`. Where height is missing, estimated from the assessor's story count. |
+| Aerial photo | [Esri World Imagery](https://www.arcgis.com/home/item.html?id=10df2279f9684e4a9f6a7f08febac2a9) | ~1 m ortho, exported for the same tile as the DEM and draped on the 3D surface. |
+| Tree canopy | derived from the aerial photo | Vegetation = excess-green index (2G−R−B); trees = green **and** textured (rough canopy) vs. smooth mown/bare ground. Approximate, not a LiDAR canopy model. |
 
 ## Method
 
@@ -47,6 +49,11 @@ polygons, base64-packed). `index.html` is a self-contained three.js viewer.
   (typically within a few meters).
 - Lat/long hover uses bilinear interpolation across the tile corners — accurate to well
   under a meter at this scale.
+- **Trees** are inferred from summer aerial imagery (greenness + canopy texture), so the
+  layer is approximate and can miss individual trees or catch dense shrubs. USGS/IO 10 m land
+  cover classes both entire parcels as forest; the derived layer's value is showing the
+  *cleared* homesite areas within that forest. **No streams or ponds** were found on either
+  parcel (confirmed against the aerial imagery and hydrography).
 - Only geographic data is published here (address, town, acreage, boundary, elevation).
   Owner names, assessed values and mailing addresses from the assessor records are **not**
   included.
