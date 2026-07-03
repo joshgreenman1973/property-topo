@@ -93,7 +93,7 @@
   <div class="row" style="margin-top:6px"><label data-tip="Vertical spacing between contour lines, in meters of elevation. Smaller intervals show more detail but crowd together on steep slopes.">Contour interval</label><span class="val" id="ciVal">2 m</span></div>
   <input type="range" id="ci" min="0" max="4" step="1" value="1">
   <label class="toggle"><input type="checkbox" id="outline" checked><span data-tip="The gold line is the legal property boundary from the official assessor's parcel map, draped onto the 3D surface at its true elevation.">Parcel boundary</span></label>
-  <label class="toggle"><input type="checkbox" id="buildings" checked><span data-tip="Real building footprints (FEMA USA Structures / assessor), placed at their true location and extruded to their measured height. Roof heights are LiDAR-derived where available, otherwise estimated from the assessor's story count. Shown as simple flat-roof blocks (LOD1).">Buildings</span></label>
+  <label class="toggle"><input type="checkbox" id="buildings" checked><span data-tip="Real building footprints (FEMA USA Structures / assessor), placed at their true location and extruded to their measured height. Roof heights are LiDAR-derived where available, otherwise estimated from the assessor's story count. Shown as simple flat-roof blocks (LOD1) at their true height &mdash; buildings are NOT vertically exaggerated even when the terrain is.">Buildings</span></label>
   <label class="toggle"><input type="checkbox" id="labels" checked><span data-tip="North / South / East / West markers placed at the edges of the view. North also aligns with the compass at top-right.">Compass labels</span></label>
   <label class="toggle"><input type="checkbox" id="wire"><span data-tip="Shows the underlying triangular terrain mesh &mdash; every vertex is one ~1&#8202;m LiDAR elevation sample.">Wireframe</span></label>
   </div>
@@ -150,7 +150,10 @@ renderer.setSize(innerWidth, innerHeight);
 document.getElementById('app').appendChild(renderer.domElement);
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true; controls.dampingFactor = 0.08;
-controls.maxPolarAngle = Math.PI*0.495; controls.minDistance = 30;
+controls.maxPolarAngle = Math.PI*0.495;
+controls.minDistance = 4;            // get right up to a building
+controls.zoomToCursor = true;        // scroll/pinch zooms toward the pointer, not just center
+controls.zoomSpeed = 1.35;
 
 scene.add(new THREE.HemisphereLight(0xbcd4ff, 0x20241a, 0.6));
 const sun = new THREE.DirectionalLight(0xffffff, 2.0); scene.add(sun); scene.add(sun.target);
@@ -251,9 +254,11 @@ function build(key){
     for(const [x,z] of ring){ const g=sampleH(x,z); if(g<gmin) gmin=g; }
     const shape=new THREE.Shape();
     ring.forEach(([x,z],i)=> i? shape.lineTo(x,-z): shape.moveTo(x,-z));
+    // buildings render at TRUE height (not exaggerated); only their base sits on the
+    // exaggerated terrain, so a 7 m house always looks 7 m regardless of the exag slider.
     const geo=new THREE.ExtrudeGeometry(shape,{depth:b.height+found,bevelEnabled:false});
-    geo.rotateX(-Math.PI/2); geo.scale(1,ex,1);
-    const bm=new THREE.Mesh(geo,[roofMat,wallMat]); bm.position.y=(gmin-found)*ex;
+    geo.rotateX(-Math.PI/2);
+    const bm=new THREE.Mesh(geo,[roofMat,wallMat]); bm.position.y=gmin*ex-found;
     bgroup.add(bm);
     const eg=new THREE.LineSegments(new THREE.EdgesGeometry(geo,30),edgeMat); eg.position.copy(bm.position); bgroup.add(eg);
   }
@@ -276,6 +281,7 @@ function build(key){
   controls.target.set(0,topH*0.4,0);
   const dir=new THREE.Vector3(0.62,0.58,0.62).normalize();
   camera.position.copy(controls.target).addScaledVector(dir,fit);
+  controls.maxDistance=half*7;
   controls.update();
   updateSun(); fillFacts(); fillCoords();
 }
