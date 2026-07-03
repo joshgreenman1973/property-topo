@@ -19,6 +19,8 @@ PROPS = [
         "utm_epsg": 32619,
         "parcel_url": "https://arcgisserver.digital.mass.gov/arcgisserver/rest/services/AGOL/MassachusettsPropertyTaxParcels/FeatureServer/1/query",
         "where": "LOC_ID='M_257897_787708'",
+        # FEMA had no LiDAR height for this building; assessor says 2.5 stories -> ~8 m
+        "fallback_height": 8.0, "fallback_src": "est. from 2.5 stories (assessor)",
     },
     {
         "id": "cornwall",
@@ -28,8 +30,12 @@ PROPS = [
         "utm_epsg": 32618,
         "parcel_url": "https://gisservices.its.ny.gov/arcgis/rest/services/NYS_Tax_Parcels_Public/FeatureServer/1/query",
         "where": "PRINT_KEY='124-1-16.1' AND MUNI_NAME='Cornwall-on-Hudson'",
+        "fallback_height": 7.0, "fallback_src": "est. 2-story default",
     },
 ]
+
+FEMA_URL = ("https://services2.arcgis.com/FiaPA4ga0iQKduv3/arcgis/rest/services/"
+            "USA_Structures_View/FeatureServer/0/query")
 
 DEM_SERVICE = ("https://elevation.nationalmap.gov/arcgis/rest/services/"
                "3DEPElevation/ImageServer/exportImage")
@@ -91,6 +97,29 @@ for p in PROPS:
                 for i in range(len(outer_utm)-1))) / 2.0
     acres = A / 4046.8564224
 
+    # 5. building footprints on the parcel (FEMA USA Structures)
+    poly4326 = {"rings": [outer_ll], "spatialReference": {"wkid": 4326}}
+    fb = q(FEMA_URL, {"geometry": json.dumps(poly4326), "geometryType": "esriGeometryPolygon",
+                      "inSR": "4326", "outSR": "4326", "spatialRel": "esriSpatialRelIntersects",
+                      "outFields": "BUILD_ID,HEIGHT,OCC_CLS,PRIM_OCC,SQFEET", "returnGeometry": "true", "f": "json"})
+    buildings = []
+    for f in fb.get("features", []):
+        a = f["attributes"]
+        h = a.get("HEIGHT")
+        if h and h > 1.5:
+            height, hsrc = float(h), "LiDAR (FEMA USA Structures)"
+        else:
+            height, hsrc = p["fallback_height"], p["fallback_src"]
+        ring_ll = max(f["geometry"]["rings"], key=len)
+        ring_mesh = [to_mesh(*fwd.transform(lon, lat)) for lon, lat in ring_ll]
+        buildings.append({
+            "mesh": ring_mesh, "lonlat": ring_ll,
+            "height": round(height, 1), "height_src": hsrc,
+            "occ": a.get("PRIM_OCC"), "sqft": round(a.get("SQFEET") or 0),
+        })
+    print(f"    buildings: {len(buildings)} -> " +
+          ", ".join(f"{b['occ']} {b['sqft']}sf h={b['height']}m" for b in buildings))
+
     out[p["id"]] = {
         "id": p["id"], "label": p["label"], "town": p["town"],
         "acres": round(acres, 2), "acres_assessor": p["acres_src"],
@@ -99,6 +128,7 @@ for p in PROPS:
         "center_lonlat": center_ll, "corners": corners,
         "poly_mesh": poly_mesh,          # rings in mesh xz
         "poly_lonlat": rings_ll,         # rings in lon/lat
+        "buildings": buildings,          # footprints (mesh xz) + heights
         "heights_b64": base64.b64encode(arr.astype('<f4').tobytes()).decode(),
     }
 

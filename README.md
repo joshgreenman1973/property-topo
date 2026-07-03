@@ -14,6 +14,7 @@ labels; hover the terrain for live latitude / longitude / elevation.
 | Elevation | [USGS 3DEP](https://www.usgs.gov/3d-elevation-program) `3DEPElevation/ImageServer` | LiDAR-derived bare-earth DEM, requested at ~1 m/pixel over each parcel's bounding box. Values are meters above the vertical datum (NAVD88). |
 | MA parcel boundary | [MassGIS Standardized Assessors' Parcels (L3)](https://www.mass.gov/info-details/massgis-data-property-tax-parcels) | Boundary polygon + assessor record (address, town, acreage). |
 | NY parcel boundary | [NYS Tax Parcels Public](https://gis.ny.gov/parcels) (Orange County, 2025 roll) | Boundary polygon + assessor record. |
+| Building footprints | [FEMA USA Structures](https://gis-fema.hub.arcgis.com/pages/usa-structures) (Oak Ridge / USGS) | Footprints >450 sq ft with LiDAR-derived `HEIGHT`. Where height is missing, estimated from the assessor's story count. |
 
 ## Method
 
@@ -31,8 +32,12 @@ polygons, base64-packed). `index.html` is a self-contained three.js viewer.
 
 ## Caveats & confidence
 
-- **Elevation is bare-earth**, so buildings and tree canopy are not represented — this is
-  the ground surface.
+- **Elevation is bare-earth**, so buildings and tree canopy are removed from the ground
+  surface. The buildings are added back separately as 3D blocks placed on that surface.
+- **Buildings are LOD1 blocks** — real footprint and location, extruded to a single flat-roof
+  height. Height is LiDAR-measured where FEMA provides it (Cornwall's two structures, ~7 m),
+  otherwise estimated from the assessor's story count (Aquinnah, 2.5 stories → ~8 m). Roof
+  pitch and architectural detail are not modeled.
 - **Acreage** shown is computed from the polygon (shoelace on UTM coordinates); the
   assessor's stated acreage is shown alongside for comparison. Small differences are normal
   (survey vs. GIS digitizing).

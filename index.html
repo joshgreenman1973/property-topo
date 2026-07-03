@@ -93,6 +93,7 @@
   <div class="row" style="margin-top:6px"><label data-tip="Vertical spacing between contour lines, in meters of elevation. Smaller intervals show more detail but crowd together on steep slopes.">Contour interval</label><span class="val" id="ciVal">2 m</span></div>
   <input type="range" id="ci" min="0" max="4" step="1" value="1">
   <label class="toggle"><input type="checkbox" id="outline" checked><span data-tip="The gold line is the legal property boundary from the official assessor's parcel map, draped onto the 3D surface at its true elevation.">Parcel boundary</span></label>
+  <label class="toggle"><input type="checkbox" id="buildings" checked><span data-tip="Real building footprints (FEMA USA Structures / assessor), placed at their true location and extruded to their measured height. Roof heights are LiDAR-derived where available, otherwise estimated from the assessor's story count. Shown as simple flat-roof blocks (LOD1).">Buildings</span></label>
   <label class="toggle"><input type="checkbox" id="labels" checked><span data-tip="North / South / East / West markers placed at the edges of the view. North also aligns with the compass at top-right.">Compass labels</span></label>
   <label class="toggle"><input type="checkbox" id="wire"><span data-tip="Shows the underlying triangular terrain mesh &mdash; every vertex is one ~1&#8202;m LiDAR elevation sample.">Wireframe</span></label>
   </div>
@@ -239,6 +240,25 @@ function build(key){
   lm.resolution.set(innerWidth,innerHeight);
   const line=new Line2(lg,lm); line.computeLineDistances(); line.name='outline'; group.add(line);
 
+  // ---- buildings: extrude real footprints onto the terrain ----
+  const bgroup=new THREE.Group(); bgroup.name='buildings';
+  const wallMat=new THREE.MeshStandardMaterial({color:0xece6da,roughness:0.85,metalness:0});
+  const roofMat=new THREE.MeshStandardMaterial({color:0x8a4b3a,roughness:0.9,metalness:0});
+  const edgeMat=new THREE.LineBasicMaterial({color:0x3a2b23});
+  const found=2;
+  for(const b of (D.buildings||[])){
+    const ring=b.mesh; let gmin=Infinity;
+    for(const [x,z] of ring){ const g=sampleH(x,z); if(g<gmin) gmin=g; }
+    const shape=new THREE.Shape();
+    ring.forEach(([x,z],i)=> i? shape.lineTo(x,-z): shape.moveTo(x,-z));
+    const geo=new THREE.ExtrudeGeometry(shape,{depth:b.height+found,bevelEnabled:false});
+    geo.rotateX(-Math.PI/2); geo.scale(1,ex,1);
+    const bm=new THREE.Mesh(geo,[roofMat,wallMat]); bm.position.y=(gmin-found)*ex;
+    bgroup.add(bm);
+    const eg=new THREE.LineSegments(new THREE.EdgesGeometry(geo,30),edgeMat); eg.position.copy(bm.position); bgroup.add(eg);
+  }
+  group.add(bgroup);
+
   // ---- N/S/E/W labels ----
   const yLab=relief*ex*0.5+8, off=half+12;
   const labs=new THREE.Group(); labs.name='labels';
@@ -261,8 +281,10 @@ function build(key){
 }
 
 function applyToggles(){ if(!group) return;
-  group.getObjectByName('outline') && (group.getObjectByName('outline').visible=outline.checked);
-  group.getObjectByName('labels') && (group.getObjectByName('labels').visible=labels.checked); }
+  const g=n=>group.getObjectByName(n);
+  g('outline') && (g('outline').visible=outline.checked);
+  g('labels') && (g('labels').visible=labels.checked);
+  g('buildings') && (g('buildings').visible=buildings.checked); }
 
 function updateSun(){ const az=parseFloat(sun_.value)*Math.PI/180, el=42*Math.PI/180, r=Math.max(half*3,600);
   sun.position.set(Math.sin(az)*Math.cos(el)*r, Math.sin(el)*r, Math.cos(az)*Math.cos(el)*r);
@@ -272,7 +294,8 @@ function fillFacts(){ document.getElementById('facts').innerHTML=
   `<div><span class="k">Address</span><b>${D.label}</b></div>`+
   `<div><span class="k">Town</span><b>${D.town}</b></div>`+
   `<div><span class="k">Parcel</span><b>${D.acres} acres</b> <span style="color:var(--mut)">(assessor: ${D.acres_assessor})</span></div>`+
-  `<div><span class="k">Relief</span><b>${relief.toFixed(1)} m</b> <span style="color:var(--mut)">(${(relief*3.281).toFixed(0)} ft) &middot; ${D.zmin.toFixed(0)}–${D.zmax.toFixed(0)} m</span></div>`; }
+  `<div><span class="k">Relief</span><b>${relief.toFixed(1)} m</b> <span style="color:var(--mut)">(${(relief*3.281).toFixed(0)} ft) &middot; ${D.zmin.toFixed(0)}–${D.zmax.toFixed(0)} m</span></div>`+
+  (D.buildings&&D.buildings.length?`<div><span class="k">Buildings</span><b>${D.buildings.length}</b> <span style="color:var(--mut)">tallest ${Math.max(...D.buildings.map(b=>b.height)).toFixed(0)} m &middot; ${D.buildings[0].height_src.includes('LiDAR')?'LiDAR height':'est. height'}</span></div>`:''); }
 
 function fillCoords(){ const c=D.corners, ctr=D.center_lonlat;
   const nLat=(c.nw[1]+c.ne[1])/2, sLat=(c.sw[1]+c.se[1])/2, eLon=(c.ne[0]+c.se[0])/2, wLon=(c.nw[0]+c.sw[0])/2;
@@ -287,7 +310,8 @@ function fillCoords(){ const c=D.corners, ctr=D.center_lonlat;
 // ---- UI refs ----
 const exag=document.getElementById('exag'), sun_=document.getElementById('sun'),
   contours=document.getElementById('contours'), ci=document.getElementById('ci'),
-  outline=document.getElementById('outline'), labels=document.getElementById('labels'), wire=document.getElementById('wire');
+  outline=document.getElementById('outline'), labels=document.getElementById('labels'),
+  buildings=document.getElementById('buildings'), wire=document.getElementById('wire');
 
 const tabs=document.getElementById('tabs');
 Object.keys(window.TERRAIN).forEach((k,i)=>{ const el=document.createElement('div');
@@ -299,7 +323,7 @@ exag.oninput=()=>{ document.getElementById('exagVal').innerHTML=parseFloat(exag.
 sun_.oninput=()=>{ document.getElementById('sunVal').innerHTML=sun_.value+'&deg;'; updateSun(); };
 contours.onchange=()=>{ if(uniforms) uniforms.uContourOn.value=contours.checked?1:0; };
 ci.oninput=()=>{ const v=CI_STEPS[+ci.value]; document.getElementById('ciVal').textContent=v+' m'; if(uniforms) uniforms.uInterval.value=v; };
-outline.onchange=applyToggles; labels.onchange=applyToggles;
+outline.onchange=applyToggles; labels.onchange=applyToggles; buildings.onchange=applyToggles;
 wire.onchange=()=>{ const m=group&&group.children[0]; if(m) m.material.wireframe=wire.checked; };
 function currentKey(){ return Object.keys(window.TERRAIN)[[...tabs.children].findIndex(c=>c.classList.contains('active'))]; }
 
