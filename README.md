@@ -54,6 +54,10 @@ polygons, base64-packed). `index.html` is a self-contained three.js viewer.
   are not occluders, so it is the cleared/leaf-off upper bound on visibility.
 - **Elevation profile** — click two points; the cross-section samples the 1 m grid every
   ~0.4% of the line and reports length, high/low, climb and descent.
+- **Adjoining owners** — parcels intersecting the property boundary, from the same assessor
+  services (owner of record, site address, acreage — all public record). Drawn as dashed
+  boundary lines with labels. Parcels with no owner in the assessor record show "unknown"
+  (often road or utility strips).
 
 ## Caveats & confidence
 
@@ -89,9 +93,9 @@ polygons, base64-packed). `index.html` is a self-contained three.js viewer.
   canopy tops by ~10 m on Cornwall). The aerial-photo drape still shows the leaf-off look;
   summer imagery (e.g. Google) shows the dense cover the LiDAR confirms. **No streams or
   ponds** were found on either parcel (confirmed against the aerial imagery and hydrography).
-- Only geographic data is published here (address, town, acreage, boundary, elevation).
-  Owner names, assessed values and mailing addresses from the assessor records are **not**
-  included.
+- The published data is address, town, acreage, boundary, elevation, and — added at the
+  owner's request — the **names of record and lot sizes of adjoining parcels** (public
+  assessor data). Assessed values and mailing addresses are not included.
 
 ## Run locally
 
