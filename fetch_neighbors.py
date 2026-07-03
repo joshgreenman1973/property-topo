@@ -54,15 +54,15 @@ for k, d in data.items():
                 "rings_ll": f["geometry"]["rings"],
             })
     else:
-        r = q(NY_GEO, {**base, "outFields": "PRINT_KEY,PRIMARY_OWNER,PARCEL_ADDR,ACRES"})
+        r = q(NY_GEO, {**base, "outFields": "PRINT_KEY,PRIMARY_OWNER,PARCEL_ADDR,ACRES,CALC_ACRES"})
         for f in r.get("features", []):
             a = f["attributes"]
             if a.get("PRINT_KEY") == SELF[k]:
                 continue
             neighbors.append({
-                "owner": (a.get("PRIMARY_OWNER") or "unknown").title(),
+                "owner": (a.get("PRIMARY_OWNER") or "").title() or "No owner on public roll",
                 "addr": (a.get("PARCEL_ADDR") or "").title(),
-                "acres": a.get("ACRES"),
+                "acres": a.get("ACRES") or (round(a["CALC_ACRES"], 1) if a.get("CALC_ACRES") else None),
                 "rings_ll": f["geometry"]["rings"],
             })
     # to mesh coords

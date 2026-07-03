@@ -122,7 +122,7 @@
     <div class="tab sbtn" data-surf="aspect" data-tip="ASPECT = the compass direction a slope faces (the way water would run off it, the way it 'looks'). Blue faces north (shady, cool, snow lingers), gold faces south (sunniest), green east (morning sun), purple west (afternoon sun). Flat ground is gray. Useful for siting gardens, solar panels or a sunny terrace.">Aspect</div>
   </div>
   <label class="toggle"><input type="checkbox" id="trees"><span data-tip="A translucent green canopy surface wherever the LiDAR measured vegetation at least 2.5 m tall, drawn at its measured height &mdash; hover to read the height at any spot. Computed from the newest USGS flights (2021 for Aquinnah, 2022 for Cornwall) directly from the raw point clouds. Building footprints are excluded. Both properties are densely wooded. No streams or ponds were found on either parcel.">Trees (canopy)</span></label>
-  <label class="toggle"><input type="checkbox" id="nbrs"><span data-tip="The parcels that share a boundary with this property, from the same official assessor rolls (public record): dashed gray property lines with the owner of record and lot size. One or two adjoining slivers may show as 'unknown' where the assessor record has no owner attached (often road or utility strips).">Adjoining owners</span></label>
+  <label class="toggle"><input type="checkbox" id="nbrs"><span data-tip="The parcels that share a boundary with this property, from the same official assessor rolls (public record). Each neighbor gets its own color: a flat colored panel around the base of the 3D terrain (like a plat map), a matching label with owner of record and lot size, and a matching swatch in the list below. 'Unknown' means the assessor record has no owner attached (often road or utility strips).">Adjoining owners</span></label>
   <div id="nbList" style="display:none;font-size:11px;line-height:1.55;color:var(--mut);margin:2px 0 4px 23px"></div>
   <label class="toggle"><input type="checkbox" id="drain"><span data-tip="Where rain concentrates as it runs downhill, computed from the terrain (D8 flow accumulation): each cell drains to its steepest neighbor, and blue traces appear where at least ~150 upslope cells feed through. These are ephemeral runoff paths &mdash; not mapped streams (neither parcel has one).">Drainage paths</span></label>
   <label class="toggle"><input type="checkbox" id="viewshed"><span data-tip="Which parts of the parcel a person standing at the house (eye 2 m above ground) can theoretically see: gold tint = line-of-sight reaches that ground, computed by sweeping 720 sight rays over the bare-earth surface. Terrain-only &mdash; trees and buildings are NOT accounted for, so real visibility through this much forest is far less. Treat it as the cleared / leaf-off upper bound.">Viewshed from house</span></label>
@@ -281,19 +281,42 @@ function textSprite(txt,color){
   const sp=new THREE.Sprite(new THREE.SpriteMaterial({map:tx,depthTest:false,transparent:true}));
   sp.scale.set(26,13,1); return sp; }
 
-function roadLabel(txt){
+function roadLabel(txt,accent){
   const m=document.createElement('canvas').getContext('2d');
   m.font='600 26px -apple-system,sans-serif';
   const w=Math.ceil(m.measureText(txt).width)+26;
   const cv=document.createElement('canvas'); cv.width=w; cv.height=42;
   const g=cv.getContext('2d');
   g.font='600 26px -apple-system,sans-serif'; g.textBaseline='middle';
-  g.fillStyle='rgba(13,17,23,0.78)'; g.beginPath(); g.roundRect(0,3,w,36,8); g.fill();
-  g.strokeStyle='#3d4650'; g.stroke();
-  g.fillStyle='#dce3ea'; g.fillText(txt,13,21);
+  g.fillStyle='rgba(13,17,23,0.82)'; g.beginPath(); g.roundRect(0,3,w,36,8); g.fill();
+  g.lineWidth=accent?3:1; g.strokeStyle=accent||'#3d4650'; g.stroke();
+  g.fillStyle=accent||'#dce3ea'; g.fillText(txt,13,21);
   const t=new THREE.CanvasTexture(cv); t.anisotropy=4;
   const sp=new THREE.Sprite(new THREE.SpriteMaterial({map:t,depthTest:false,transparent:true}));
   sp.scale.set(w*0.155,6.5,1); sp.renderOrder=3; return sp; }
+
+const NB_PALETTE=['#e07a7a','#7ab3e0','#8fd08f','#d8b46a','#b98fd0','#6ac9c0','#e0904f','#93a7e8','#c7d06a','#d987b5','#8fc7dd','#d0a3a3'];
+function clipToTile(ring,hf){ // Sutherland-Hodgman against the square tile
+  let pts=ring.slice();
+  for(const [ax,az,d] of [[1,0,hf],[-1,0,hf],[0,1,hf],[0,-1,hf]]){
+    const inside=p=>ax*p[0]+az*p[1]<=d;
+    const out=[];
+    for(let i=0;i<pts.length;i++){
+      const a=pts[i], b=pts[(i+1)%pts.length], ia=inside(a), ib=inside(b);
+      if(ia) out.push(a);
+      if(ia!==ib){ const t=(d-(ax*a[0]+az*a[1]))/((ax*(b[0]-a[0])+az*(b[1]-a[1]))||1e-9);
+        out.push([a[0]+(b[0]-a[0])*t, a[1]+(b[1]-a[1])*t]); }
+    }
+    pts=out; if(!pts.length) break;
+  }
+  return pts;
+}
+function polyCentroidArea(pts){ let A=0,cx=0,cz=0;
+  for(let i=0;i<pts.length;i++){ const [x1,z1]=pts[i],[x2,z2]=pts[(i+1)%pts.length];
+    const cr=x1*z2-x2*z1; A+=cr; cx+=(x1+x2)*cr; cz+=(z1+z2)*cr; }
+  A/=2; if(Math.abs(A)<1e-6) return [0,0,0];
+  return [cx/(6*A), cz/(6*A), Math.abs(A)];
+}
 
 function build(key){
   D = window.TERRAIN[key];
@@ -470,38 +493,43 @@ function build(key){
   }
   group.add(rgroup);
 
-  // ---- adjoining parcels: dashed boundaries + owner labels ----
+  // ---- adjoining parcels: flat color-coded plat mosaic at the base level ----
   const ngroup=new THREE.Group(); ngroup.name='neighbors';
-  const inT=(x,z)=>Math.abs(x)<half-0.5&&Math.abs(z)<half-0.5;
-  for(const nb of (D.neighbors||[])){
-    let anchor=null, best=Infinity;
+  const nbY=base+0.4;  // flat plate just above the skirt base
+  // drop assessor-layer duplicates of the subject parcel (their center is inside our boundary)
+  D._nbf=(D.neighbors||[]).filter(nb=>{
+    let bp=null,ba=0;
+    for(const ring of nb.rings){ const cl=clipToTile(ring,half-0.5); if(cl.length<3) continue;
+      const [cx2,cz2,A]=polyCentroidArea(cl); if(A>ba){ba=A;bp=[cx2,cz2];} }
+    return bp && !inPoly(bp[0],bp[1],outerRing);
+  });
+  D._nbf.forEach((nb,ni)=>{
+    const colHex=NB_PALETTE[ni%NB_PALETTE.length];
+    const col=new THREE.Color(colHex);
+    let bestPoly=null, bestA=0;
     for(const ring of nb.rings){
-      // split into in-tile runs, drape each as a dashed line
-      const runs=[]; let cur=[];
-      for(let i=0;i<ring.length-1;i++){
-        const [x0,z0]=ring[i],[x1,z1]=ring[i+1];
-        const steps=Math.max(1,Math.ceil(Math.hypot(x1-x0,z1-z0)/5));
-        for(let s=0;s<steps;s++){ const t=s/steps, x=x0+(x1-x0)*t, z=z0+(z1-z0)*t;
-          if(inT(x,z)){ cur.push([x,z]); const dd=x*x+z*z; if(dd<best){best=dd; anchor=[x,z];} }
-          else if(cur.length){ runs.push(cur); cur=[]; } }
-      }
-      if(cur.length>1) runs.push(cur);
-      for(const run of runs){
-        if(run.length<2) continue;
-        const lp=[]; for(const [x,z] of run) lp.push(x,sampleH(x,z)*ex+0.55,z);
-        const lg2=new LineGeometry(); lg2.setPositions(lp);
-        const lm2=new LineMaterial({color:0xaab3bd,linewidth:1.6,worldUnits:false,dashed:true,dashSize:3,gapSize:2.2});
-        lm2.resolution.set(innerWidth,innerHeight);
-        const ln=new Line2(lg2,lm2); ln.computeLineDistances(); ngroup.add(ln);
-      }
+      const clipped=clipToTile(ring,half-0.5);
+      if(clipped.length<3) continue;
+      const [cx2,cz2,A]=polyCentroidArea(clipped);
+      if(A>bestA){ bestA=A; bestPoly=[cx2,cz2]; }
+      const shape=new THREE.Shape();
+      clipped.forEach(([x,z],i)=> i?shape.lineTo(x,-z):shape.moveTo(x,-z));
+      const gfill=new THREE.ShapeGeometry(shape); gfill.rotateX(-Math.PI/2);
+      const fill=new THREE.Mesh(gfill,new THREE.MeshBasicMaterial({color:col,transparent:true,opacity:0.42,side:THREE.DoubleSide,depthWrite:false}));
+      fill.position.y=nbY; ngroup.add(fill);
+      const lp=[]; clipped.forEach(([x,z])=>lp.push(x,nbY+0.2,z));
+      const c0=clipped[0]; lp.push(c0[0],nbY+0.2,c0[1]);
+      const lg2=new LineGeometry(); lg2.setPositions(lp);
+      const lm2=new LineMaterial({color:colHex,linewidth:2,worldUnits:false});
+      lm2.resolution.set(innerWidth,innerHeight);
+      ngroup.add(new Line2(lg2,lm2));
     }
-    if(anchor){
-      const short=nb.owner.length>26?nb.owner.slice(0,25)+'…':nb.owner;
-      const sp=roadLabel(short+(nb.acres?` · ${(+nb.acres).toFixed(1)} ac`:''));
-      sp.position.set(anchor[0]*0.92, sampleH(anchor[0],anchor[1])*ex+11, anchor[1]*0.92);
-      ngroup.add(sp);
+    if(bestPoly){
+      const short=nb.owner.length>24?nb.owner.slice(0,23)+'…':nb.owner;
+      const sp=roadLabel(short+(nb.acres?` · ${(+nb.acres).toFixed(1)} ac`:''),colHex);
+      sp.position.set(bestPoly[0],nbY+7,bestPoly[1]); ngroup.add(sp);
     }
-  }
+  });
   ngroup.visible=false; group.add(ngroup);
 
   // ---- N/S/E/W labels ----
@@ -542,9 +570,10 @@ function applyToggles(){ if(!group) return;
   g('roads') && (g('roads').visible=roads.checked);
   g('trees') && (g('trees').visible=trees.checked);
   g('neighbors') && (g('neighbors').visible=nbrs.checked);
-  document.getElementById('nbList').style.display=nbrs.checked&&(D.neighbors||[]).length?'block':'none';
-  if(nbrs.checked) document.getElementById('nbList').innerHTML=(D.neighbors||[])
-    .map(nb=>`<div>&#9633; <b style="color:var(--txt)">${nb.owner}</b>${nb.acres?' · '+(+nb.acres).toFixed(1)+' ac':''}${nb.addr?' · '+nb.addr:''}</div>`).join('');
+  const nbf=D._nbf||D.neighbors||[];
+  document.getElementById('nbList').style.display=nbrs.checked&&nbf.length?'block':'none';
+  if(nbrs.checked) document.getElementById('nbList').innerHTML=nbf
+    .map((nb,ni)=>`<div><span style="display:inline-block;width:9px;height:9px;border-radius:2px;background:${NB_PALETTE[ni%NB_PALETTE.length]};margin-right:5px"></span><b style="color:var(--txt)">${nb.owner}</b>${nb.acres?' · '+(+nb.acres).toFixed(1)+' ac':''}${nb.addr?' · '+nb.addr:''}</div>`).join('');
   if(drain.checked && !g('drainage')) buildDrainage();
   g('drainage') && (g('drainage').visible=drain.checked);
   if(viewshed.checked && !g('viewshed')) buildViewshed();
