@@ -16,7 +16,7 @@ labels; hover the terrain for live latitude / longitude / elevation.
 | NY parcel boundary | [NYS Tax Parcels Public](https://gis.ny.gov/parcels) (Orange County, 2025 roll) | Boundary polygon + assessor record. |
 | Building footprints | [FEMA USA Structures](https://gis-fema.hub.arcgis.com/pages/usa-structures) (Oak Ridge / USGS) | Footprints >450 sq ft with LiDAR-derived `HEIGHT`. Where height is missing, estimated from the assessor's story count. |
 | Aerial photo | [Esri World Imagery](https://www.arcgis.com/home/item.html?id=10df2279f9684e4a9f6a7f08febac2a9) | ~1 m ortho, exported for the same tile as the DEM and draped on the 3D surface. |
-| Tree canopy | [USGS 3DEP LiDAR via Planetary Computer](https://planetarycomputer.microsoft.com/dataset/3dep-lidar-hag) | Aquinnah: 2 m height-above-ground product (2013-14 flights, two tiles mosaicked). Cornwall: 2 m first-return DSM (2013) minus the bare-earth DEM. Trees = canopy ≥ 2.5 m, building footprints excluded. Encoded in half-meter steps. |
+| Tree canopy | USGS 3DEP LiDAR point clouds ([MA_CentralEastern_2021](https://www.sciencebase.gov/catalog), NY_SouthEast4County_A22 2022) | Computed directly from the raw LAZ point clouds: max return height per 1 m cell minus the bare-earth grid (same flights as the terrain). Trees = canopy ≥ 2.5 m, building footprints excluded. Encoded in half-meter steps. Replaces an earlier 2013-14 version (leaf-off Sandy-era LiDAR that underestimated canopy tops). |
 | Roads | [OpenStreetMap](https://www.openstreetmap.org) via Overpass API | All `highway` ways in the tile, draped on the terrain as ribbons with approximate widths by class (trunk ≈9 m … driveway ≈3 m). Road data © OpenStreetMap contributors. |
 
 ## Method
@@ -32,6 +32,16 @@ labels; hover the terrain for live latitude / longitude / elevation.
 
 `fetch_parcels.py` performs steps 1–4 and writes `terrain_data.js` (elevation grids +
 polygons, base64-packed). `index.html` is a self-contained three.js viewer.
+
+## Derived layers
+
+- **Slope** — per-pixel gradient of the 1 m elevation grid (central differences), shown in
+  degrees: green ≈ flat, yellow ≈ 15–25°, red ≈ 45°+. Hover reads the exact value.
+- **Aspect** — the compass direction each slope faces (downhill direction): blue N, green E,
+  gold S, purple W; near-flat ground (<2°) is gray. South-facing slopes get the most sun.
+- **Relief** — the headline figure is highest minus lowest ground elevation **within the
+  parcel boundary**; the secondary figure is the same range across the whole square view
+  tile (parcel + context margin).
 
 ## Caveats & confidence
 
@@ -57,16 +67,16 @@ polygons, base64-packed). `index.html` is a self-contained three.js viewer.
   (typically within a few meters).
 - Lat/long hover uses bilinear interpolation across the tile corners — accurate to well
   under a meter at this scale.
-- **Trees**: both *where* trees are and *how tall* come from the same LiDAR (2013-14 USGS
-  flights): any spot with vegetation ≥ 2.5 m above ground is drawn as a translucent canopy
-  surface at its measured height (buildings excluded), readable per-spot via hover. Both
-  parcels are densely wooded — 92% canopy (Aquinnah) and 84% (Cornwall). An earlier version
-  inferred tree locations from the Esri aerial photo's greenness; that badly under-detected
-  Cornwall's trees because the ortho there is off-season (leaf-off) imagery — deciduous
-  canopy doesn't read green in it. The aerial-photo drape still shows that leaf-off look;
-  current summer imagery (e.g. Google) shows denser cover. **The LiDAR is from 2013-14, so
-  today's trees are likely taller and denser.** **No streams or ponds** were found on either
-  parcel (confirmed against the aerial imagery and hydrography).
+- **Trees**: both *where* trees are and *how tall* come from the newest USGS LiDAR flights
+  (Aquinnah 2021, Cornwall 2022), computed from the raw point clouds: any 1 m cell with
+  vegetation ≥ 2.5 m above ground is drawn as a translucent canopy surface at its measured
+  height (buildings excluded), readable per-spot via hover. Both parcels are densely wooded
+  (~72–80% canopy; Cornwall p95 ≈ 26 m, Aquinnah ≈ 17 m). Two earlier versions are
+  superseded: tree *locations* from aerial-photo greenness (failed on Cornwall's leaf-off
+  ortho) and *heights* from 2013-14 Sandy-era LiDAR (leaf-off, low density — underestimated
+  canopy tops by ~10 m on Cornwall). The aerial-photo drape still shows the leaf-off look;
+  summer imagery (e.g. Google) shows the dense cover the LiDAR confirms. **No streams or
+  ponds** were found on either parcel (confirmed against the aerial imagery and hydrography).
 - Only geographic data is published here (address, town, acreage, boundary, elevation).
   Owner names, assessed values and mailing addresses from the assessor records are **not**
   included.

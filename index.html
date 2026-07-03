@@ -98,8 +98,14 @@
   <label class="toggle"><input type="checkbox" id="outline" checked><span data-tip="The gold line is the legal property boundary from the official assessor's parcel map, draped onto the 3D surface at its true elevation.">Parcel boundary</span></label>
   <label class="toggle"><input type="checkbox" id="buildings" checked><span data-tip="Real building footprints (FEMA USA Structures / assessor), placed at their true location and extruded to their measured height. Roof heights are LiDAR-derived where available, otherwise estimated from the assessor's story count. Where FEMA splits one house into separate roof sections (its imagery can't see a middle section hidden under tree canopy &mdash; the Cornwall house reads as two), nearby sections are counted as one building and joined by an inferred connector. Blocks are simple flat-roof (LOD1) at true height &mdash; never vertically exaggerated.">Buildings</span></label>
   <label class="toggle"><input type="checkbox" id="roads" checked><span data-tip="Roads and driveways from OpenStreetMap, draped onto the terrain with approximate widths by road type (highway, residential street, driveway). Floating labels mark the named roads.">Roads</span></label>
-  <label class="toggle"><input type="checkbox" id="aerial"><span data-tip="Drapes a real aerial photo (Esri World Imagery, ~1 m) over the 3D terrain in place of the elevation color tint &mdash; so you see the actual trees, driveway, roofs and cleared ground. Hillshading still applies.">Aerial photo</span></label>
-  <label class="toggle"><input type="checkbox" id="trees"><span data-tip="A translucent green canopy surface wherever the LiDAR measured vegetation at least 2.5 m tall (USGS 2013-14 flights), drawn at its measured height &mdash; hover to read the height at any spot. Building footprints are excluded. Both properties are densely wooded (84-92% canopy). Trees have likely grown since 2013. No streams or ponds were found on either parcel.">Trees (canopy)</span></label>
+  <div class="row" style="margin-top:12px"><label data-tip="What the terrain surface shows. Elevation: color by height (low green to high white). Photo: real aerial imagery draped on the 3D surface (note: off-season/leaf-off for Cornwall). Slope: how steep the ground is, green (flat) through yellow to red (45°+). Aspect: which compass direction each slope faces &mdash; blue N, green E, gold S, purple W &mdash; i.e. where the sun hits.">Surface</label></div>
+  <div class="tabs surf">
+    <div class="tab sbtn active" data-surf="elev">Elev</div>
+    <div class="tab sbtn" data-surf="aerial">Photo</div>
+    <div class="tab sbtn" data-surf="slope">Slope</div>
+    <div class="tab sbtn" data-surf="aspect">Aspect</div>
+  </div>
+  <label class="toggle"><input type="checkbox" id="trees"><span data-tip="A translucent green canopy surface wherever the LiDAR measured vegetation at least 2.5 m tall, drawn at its measured height &mdash; hover to read the height at any spot. Computed from the newest USGS flights (2021 for Aquinnah, 2022 for Cornwall) directly from the raw point clouds. Building footprints are excluded. Both properties are densely wooded. No streams or ponds were found on either parcel.">Trees (canopy)</span></label>
   <label class="toggle"><input type="checkbox" id="labels" checked><span data-tip="North / South / East / West markers placed at the edges of the view. North also aligns with the compass at top-right.">Compass labels</span></label>
   <label class="toggle"><input type="checkbox" id="wire"><span data-tip="Shows the underlying triangular terrain mesh &mdash; every vertex is one ~1&#8202;m LiDAR elevation sample.">Wireframe</span></label>
 
@@ -187,6 +193,26 @@ sun.shadow.bias = -0.0004;
 scene.add(sun); scene.add(sun.target);
 
 let group, uniforms, D, H, N, half, res, zmin, relief, outerRing, tMats=null, CH=null, canopyTyp=0;
+let colorSets=null, terrainGeo=null, surfMode='elev', parcelRelief=0;
+function slopeAspectAt(c,r){ // central differences on the height grid (true meters)
+  const c0=Math.max(0,c-1), c1=Math.min(N-1,c+1), r0=Math.max(0,r-1), r1=Math.min(N-1,r+1);
+  const gx=(H[r*N+c1]-H[r*N+c0])/((c1-c0)*res);
+  const gz=(H[r1*N+c]-H[r0*N+c])/((r1-r0)*res);   // +z = south
+  const slope=Math.atan(Math.hypot(gx,gz))*180/Math.PI;
+  // downhill direction; aspect = compass bearing the slope faces
+  const az=(Math.atan2(-gx,gz)*180/Math.PI+360)%360; // 0=N, 90=E
+  return [slope,az];
+}
+const ASPECT_COLS=[[0,[76,142,217]],[90,[87,178,106]],[180,[224,192,79]],[270,[176,111,196]],[360,[76,142,217]]];
+function aspectColor(az){ for(let i=0;i<ASPECT_COLS.length-1;i++){ const [a,ca]=ASPECT_COLS[i],[b,cb]=ASPECT_COLS[i+1];
+  if(az<=b){ const f=(az-a)/(b-a); return [ca[0]+(cb[0]-ca[0])*f,ca[1]+(cb[1]-ca[1])*f,ca[2]+(cb[2]-ca[2])*f].map(v=>v/255); } }
+  return [0.5,0.5,0.5]; }
+function slopeColor(s){ const t=Math.min(s/45,1);
+  const stops=[[0,[63,143,79]],[0.33,[196,204,88]],[0.66,[224,146,68]],[1,[201,60,54]]];
+  for(let i=0;i<stops.length-1;i++){ const [a,ca]=stops[i],[b,cb]=stops[i+1];
+    if(t<=b){ const f=(t-a)/(b-a); return [ca[0]+(cb[0]-ca[0])*f,ca[1]+(cb[1]-ca[1])*f,ca[2]+(cb[2]-ca[2])*f].map(v=>v/255); } }
+  return [1,0,0]; }
+const compass8=az=>['N','NE','E','SE','S','SW','W','NW'][Math.round(az/45)%8];
 
 function decode(b64){ const bin=atob(b64); const u8=new Uint8Array(bin.length);
   for(let i=0;i<bin.length;i++) u8[i]=bin.charCodeAt(i); return new Float32Array(u8.buffer); }
@@ -257,11 +283,20 @@ function build(key){
 
   // ---- clipped terrain mesh ----
   const pos=new Float32Array(N*N*3), col=new Float32Array(N*N*3), elev=new Float32Array(N*N), uv=new Float32Array(N*N*2);
+  const colSlope=new Float32Array(N*N*3), colAspect=new Float32Array(N*N*3);
+  let pzmin=Infinity, pzmax=-Infinity;
   for(let r=0;r<N;r++)for(let c=0;c<N;c++){ const i=r*N+c;
     const x=-half+(c+0.5)*res, z=-half+(r+0.5)*res, hz=H[i];
     pos[i*3]=x; pos[i*3+1]=hz-zmin; pos[i*3+2]=z; elev[i]=hz;
     uv[i*2]=c/(N-1); uv[i*2+1]=r/(N-1);   // row0=north maps to image top (flipY=false)
-    const cc=ramp(relief>0?(hz-zmin)/relief:0.5); col[i*3]=cc[0]; col[i*3+1]=cc[1]; col[i*3+2]=cc[2]; }
+    const cc=ramp(relief>0?(hz-zmin)/relief:0.5); col[i*3]=cc[0]; col[i*3+1]=cc[1]; col[i*3+2]=cc[2];
+    const [sl,az]=slopeAspectAt(c,r);
+    const sc=slopeColor(sl); colSlope[i*3]=sc[0]; colSlope[i*3+1]=sc[1]; colSlope[i*3+2]=sc[2];
+    const ac=sl<2?[0.55,0.57,0.6]:aspectColor(az);   // near-flat = neutral gray
+    colAspect[i*3]=ac[0]; colAspect[i*3+1]=ac[1]; colAspect[i*3+2]=ac[2];
+    if(inPoly(x,z,outerRing)){ if(hz<pzmin)pzmin=hz; if(hz>pzmax)pzmax=hz; } }
+  parcelRelief=pzmax-pzmin;
+  colorSets={elev:col, slope:colSlope, aspect:colAspect};
   const idx=[];
   for(let r=0;r<N-1;r++)for(let c=0;c<N-1;c++){
     const a=r*N+c,b=r*N+c+1,d=(r+1)*N+c,e=(r+1)*N+c+1;
@@ -278,9 +313,11 @@ function build(key){
   // two materials, swapped in place on toggle so the camera never resets
   const matTint=new THREE.MeshStandardMaterial({vertexColors:true,roughness:0.95,metalness:0,side:THREE.DoubleSide,wireframe:wire.checked});
   const matAerial=new THREE.MeshStandardMaterial({map:aerialTex(key,D.aerial_b64),roughness:0.95,metalness:0,side:THREE.DoubleSide,wireframe:wire.checked});
-  const mat=aerial.checked?matAerial:matTint;
+  const mat=(surfMode==='aerial')?matAerial:matTint;
   if(tMats){ tMats.tint.dispose(); tMats.aerial.dispose(); }
   tMats={tint:matTint,aerial:matAerial};
+  terrainGeo=geo;
+  if(surfMode==='slope'||surfMode==='aspect') geo.attributes.color.array.set(colorSets[surfMode]);
   const shaderPatch=(sh)=>{ Object.assign(sh.uniforms,uniforms);
     sh.vertexShader='attribute float trueElev;\nvarying float vE;\nuniform float uExag;\n'+
       sh.vertexShader.replace('#include <begin_vertex>','#include <begin_vertex>\n transformed.y*=uExag;\n vE=trueElev;');
@@ -416,8 +453,7 @@ function build(key){
   group.add(labs);
 
   applyToggles();
-  document.getElementById('legLo').textContent=D.zmin.toFixed(0)+' m';
-  document.getElementById('legHi').textContent=D.zmax.toFixed(0)+' m';
+  updateLegend();
   // frame: bird's-eye 3/4 view that fits the whole tile
   const topH=relief*ex;
   const R=half*1.4;
@@ -447,13 +483,13 @@ function fillFacts(){ document.getElementById('facts').innerHTML=
   `<div><span class="k">Address</span><b>${D.label}</b></div>`+
   `<div><span class="k">Town</span><b>${D.town}</b></div>`+
   `<div><span class="k">Parcel</span><b>${D.acres} acres</b> <span style="color:var(--mut)">(assessor: ${D.acres_assessor})</span></div>`+
-  `<div><span class="k">Relief</span><b>${relief.toFixed(1)} m</b> <span style="color:var(--mut)">(${(relief*3.281).toFixed(0)} ft) &middot; ${D.zmin.toFixed(0)}–${D.zmax.toFixed(0)} m</span></div>`+
+  `<div><span class="k">Relief</span><b>${parcelRelief.toFixed(1)} m</b> <span style="color:var(--mut)">(${(parcelRelief*3.281).toFixed(0)} ft) within the parcel &middot; ${relief.toFixed(0)} m across the view</span></div>`+
   (D.buildings&&D.buildings.length?(()=>{ const nb=D.n_buildings||D.buildings.length;
     const parts=D.buildings.filter(b=>b.occ!=='connector').length;
     return `<div><span class="k">Buildings</span><b>${nb}</b> <span style="color:var(--mut)">${parts>nb?parts+' roof sections &middot; ':''}tallest ${Math.max(...D.buildings.map(b=>b.height)).toFixed(0)} m &middot; ${D.buildings[0].height_src.includes('LiDAR')?'LiDAR height':'est. height'}</span></div>`; })():'')+
   (()=>{ const rn=[...new Set((D.roads||[]).filter(r=>r.name).map(r=>r.name))];
     return rn.length?`<div><span class="k">Roads</span><b>${rn.join(', ')}</b></div>`:''; })()+
-  (canopyTyp?`<div><span class="k">Tree canopy</span><b>~${canopyTyp.toFixed(0)} m</b> <span style="color:var(--mut)">median &middot; LiDAR 2013-14</span></div>`:''); }
+  (canopyTyp?`<div><span class="k">Tree canopy</span><b>~${canopyTyp.toFixed(0)} m</b> <span style="color:var(--mut)">median &middot; LiDAR ${D.canopy_yr||'2013-14'}</span></div>`:''); }
 
 function fillCoords(){ const c=D.corners, ctr=D.center_lonlat;
   const nLat=(c.nw[1]+c.ne[1])/2, sLat=(c.sw[1]+c.se[1])/2, eLon=(c.ne[0]+c.se[0])/2, wLon=(c.nw[0]+c.sw[0])/2;
@@ -470,8 +506,7 @@ const exag=document.getElementById('exag'), sun_=document.getElementById('sun'),
   contours=document.getElementById('contours'), ci=document.getElementById('ci'),
   outline=document.getElementById('outline'), labels=document.getElementById('labels'),
   buildings=document.getElementById('buildings'), wire=document.getElementById('wire'),
-  aerial=document.getElementById('aerial'), trees=document.getElementById('trees'),
-  roads=document.getElementById('roads');
+  trees=document.getElementById('trees'), roads=document.getElementById('roads');
 
 const tabs=document.getElementById('tabs');
 Object.keys(window.TERRAIN).forEach((k,i)=>{ const el=document.createElement('div');
@@ -485,8 +520,34 @@ contours.onchange=()=>{ if(uniforms) uniforms.uContourOn.value=contours.checked?
 ci.oninput=()=>{ const v=CI_STEPS[+ci.value]; document.getElementById('ciVal').textContent=v+' m'; if(uniforms) uniforms.uInterval.value=v; };
 outline.onchange=applyToggles; labels.onchange=applyToggles; buildings.onchange=applyToggles;
 trees.onchange=applyToggles; roads.onchange=applyToggles;
-aerial.onchange=()=>{ const m=group&&group.children[0];
-  if(m&&tMats) m.material=aerial.checked?tMats.aerial:tMats.tint; };
+
+// surface mode: swap material/colors in place — camera never resets
+function setSurf(mode){
+  surfMode=mode;
+  document.querySelectorAll('.sbtn').forEach(b=>b.classList.toggle('active',b.dataset.surf===mode));
+  const m=group&&group.children[0];
+  if(!m||!tMats||!terrainGeo) return;
+  if(mode==='aerial'){ m.material=tMats.aerial; }
+  else {
+    m.material=tMats.tint;
+    terrainGeo.attributes.color.array.set(colorSets[mode==='elev'?'elev':mode]);
+    terrainGeo.attributes.color.needsUpdate=true;
+  }
+  updateLegend();
+}
+document.querySelectorAll('.sbtn').forEach(b=>b.onclick=()=>setSurf(b.dataset.surf));
+
+function updateLegend(){
+  const bar=document.querySelector('#legend .bar');
+  const lo=document.getElementById('legLo'), hi=document.getElementById('legHi');
+  const lab=document.querySelector('#legend [data-tip]');
+  if(surfMode==='slope'){ bar.style.background='linear-gradient(90deg,#3f8f4f,#c4cc58,#e09244,#c93c36)';
+    lo.textContent='0° flat'; hi.textContent='45°+ steep'; lab.textContent='Slope'; }
+  else if(surfMode==='aspect'){ bar.style.background='linear-gradient(90deg,#4c8ed9,#57b26a,#e0c04f,#b06fc4,#4c8ed9)';
+    lo.textContent='N → E → S'; hi.textContent='→ W → N'; lab.textContent='Faces'; }
+  else { bar.style.background='linear-gradient(90deg,#2f6b3f,#6a8f3c,#b8a56b,#96706c,#ecf0f3)';
+    lo.textContent=D.zmin.toFixed(0)+' m'; hi.textContent=D.zmax.toFixed(0)+' m'; lab.textContent='Elevation'; }
+}
 
 // ---- camera flights: view presets, spin, double-click zoom ----
 let tween=null;
@@ -539,14 +600,17 @@ renderer.domElement.addEventListener('pointermove',(e)=>{
   const hit=m?ray.intersectObject(m,false):[];
   if(hit.length){ const p=hit[0].point; const [lo,la]=lonlat(p.x,p.z); const el=sampleH(p.x,p.z)+zmin;
     const touch=e.pointerType==='touch';
-    let chm=0;
-    if(CH){ const c=Math.round((p.x+half)/res-0.5), r=Math.round((p.z+half)/res-0.5);
-      if(c>=0&&c<N&&r>=0&&r<N) chm=CH[r*N+c]/2; }
+    let chm=0, slopeTxt='';
+    const gc=Math.min(N-1,Math.max(0,Math.round((p.x+half)/res-0.5)));
+    const gr=Math.min(N-1,Math.max(0,Math.round((p.z+half)/res-0.5)));
+    if(CH) chm=CH[gr*N+gc]/2;
+    { const [sl,az]=slopeAspectAt(gc,gr);
+      slopeTxt=`<br>slope <b>${sl.toFixed(0)}°</b>`+(sl>=2?` · faces <b>${compass8(az)}</b>`:' · flat'); }
     hoverEl.style.display='block';
     let hx=e.clientX+14; if(hx+150>innerWidth) hx=e.clientX-150;
     hoverEl.style.left=hx+'px'; hoverEl.style.top=(touch?e.clientY-72:e.clientY+14)+'px';
     hoverEl.innerHTML=`<span class="g">${fmtLat(la)}</span><br><span class="g">${fmtLon(lo)}</span><br>elev <b>${el.toFixed(1)} m</b> (${(el*3.281).toFixed(0)} ft)`+
-      (chm>=1.5?`<br>canopy <b>~${chm.toFixed(0)} m</b>`:''); }
+      slopeTxt+(chm>=1.5?`<br>canopy <b>~${chm.toFixed(0)} m</b>`:''); }
   else hoverEl.style.display='none'; });
 renderer.domElement.addEventListener('pointerleave',()=>hoverEl.style.display='none');
 renderer.domElement.addEventListener('pointerup',e=>{ if(e.pointerType==='touch') setTimeout(()=>hoverEl.style.display='none',1500); });
