@@ -17,6 +17,7 @@ labels; hover the terrain for live latitude / longitude / elevation.
 | Building footprints | [FEMA USA Structures](https://gis-fema.hub.arcgis.com/pages/usa-structures) (Oak Ridge / USGS) | Footprints >450 sq ft with LiDAR-derived `HEIGHT`. Where height is missing, estimated from the assessor's story count. |
 | Aerial photo | [Esri World Imagery](https://www.arcgis.com/home/item.html?id=10df2279f9684e4a9f6a7f08febac2a9) | ~1 m ortho, exported for the same tile as the DEM and draped on the 3D surface. |
 | Tree canopy | derived from the aerial photo | Vegetation = excess-green index (2G−R−B); trees = green **and** textured (rough canopy) vs. smooth mown/bare ground. Approximate, not a LiDAR canopy model. |
+| Roads | [OpenStreetMap](https://www.openstreetmap.org) via Overpass API | All `highway` ways in the tile, draped on the terrain as ribbons with approximate widths by class (trunk ≈9 m … driveway ≈3 m). Road data © OpenStreetMap contributors. |
 
 ## Method
 

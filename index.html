@@ -21,6 +21,9 @@
   .tab { flex:1; padding:8px 6px; font-size:12px; text-align:center; cursor:pointer;
     border:1px solid var(--line); border-radius:8px; background:#21262d; color:var(--mut); transition:.15s; }
   .tab.active { background:var(--accent); color:#0d1117; border-color:var(--accent); font-weight:600; }
+  .views { margin-bottom:2px; }
+  .views .tab { padding:6px 4px; font-size:11px; }
+  .views .tab.active { background:#2d4a6d; color:var(--txt); border-color:#3d6291; }
   .facts { font-size:11.5px; line-height:1.6; background:#0d1117aa; border:1px solid var(--line);
     border-radius:8px; padding:8px 10px; margin-bottom:12px; }
   .facts .k { color:var(--mut); display:inline-block; min-width:74px; }
@@ -94,10 +97,19 @@
   <input type="range" id="ci" min="0" max="4" step="1" value="1">
   <label class="toggle"><input type="checkbox" id="outline" checked><span data-tip="The gold line is the legal property boundary from the official assessor's parcel map, draped onto the 3D surface at its true elevation.">Parcel boundary</span></label>
   <label class="toggle"><input type="checkbox" id="buildings" checked><span data-tip="Real building footprints (FEMA USA Structures / assessor), placed at their true location and extruded to their measured height. Roof heights are LiDAR-derived where available, otherwise estimated from the assessor's story count. Shown as simple flat-roof blocks (LOD1) at their true height &mdash; buildings are NOT vertically exaggerated even when the terrain is.">Buildings</span></label>
+  <label class="toggle"><input type="checkbox" id="roads" checked><span data-tip="Roads and driveways from OpenStreetMap, draped onto the terrain with approximate widths by road type (highway, residential street, driveway). Floating labels mark the named roads.">Roads</span></label>
   <label class="toggle"><input type="checkbox" id="aerial"><span data-tip="Drapes a real aerial photo (Esri World Imagery, ~1 m) over the 3D terrain in place of the elevation color tint &mdash; so you see the actual trees, driveway, roofs and cleared ground. Hillshading still applies.">Aerial photo</span></label>
   <label class="toggle"><input type="checkbox" id="trees"><span data-tip="Highlights wooded / tree-canopy areas in green, derived from the summer aerial photo (green AND textured canopy, vs. smooth lawn or bare ground). Approximate &mdash; not a LiDAR canopy model. No streams or ponds were found on either parcel.">Trees (canopy)</span></label>
   <label class="toggle"><input type="checkbox" id="labels" checked><span data-tip="North / South / East / West markers placed at the edges of the view. North also aligns with the compass at top-right.">Compass labels</span></label>
   <label class="toggle"><input type="checkbox" id="wire"><span data-tip="Shows the underlying triangular terrain mesh &mdash; every vertex is one ~1&#8202;m LiDAR elevation sample.">Wireframe</span></label>
+
+  <div class="row" style="margin-top:12px"><label data-tip="Preset camera angles. You can also double-click anywhere on the terrain to fly in toward that spot, and scroll to zoom toward the cursor. Spin slowly orbits the model.">Views</label></div>
+  <div class="tabs views">
+    <div class="tab vbtn active" data-view="oblique">Oblique</div>
+    <div class="tab vbtn" data-view="top">Top</div>
+    <div class="tab vbtn" data-view="side">Side</div>
+    <div class="tab vbtn" id="spinBtn">Spin</div>
+  </div>
   </div>
 </div>
 
@@ -120,7 +132,7 @@
 
 <div id="hover"></div>
 <div id="tip"></div>
-<div id="hint">drag&nbsp;·&nbsp;orbit&nbsp;&nbsp;·&nbsp;&nbsp;scroll&nbsp;·&nbsp;zoom&nbsp;&nbsp;·&nbsp;&nbsp;right-drag&nbsp;·&nbsp;pan&nbsp;&nbsp;·&nbsp;&nbsp;hover terrain for lat/long</div>
+<div id="hint">drag&nbsp;·&nbsp;orbit&nbsp;&nbsp;·&nbsp;&nbsp;scroll&nbsp;·&nbsp;zoom&nbsp;&nbsp;·&nbsp;&nbsp;double-click&nbsp;·&nbsp;fly in&nbsp;&nbsp;·&nbsp;&nbsp;right-drag&nbsp;·&nbsp;pan&nbsp;&nbsp;·&nbsp;&nbsp;hover for lat/long</div>
 
 <script src="terrain_data.js"></script>
 <script type="importmap">
@@ -144,21 +156,35 @@ function ramp(t){ t=Math.max(0,Math.min(1,t));
   return [1,1,1]; }
 
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x0d1117);
+{ // subtle night-sky gradient instead of flat black
+  const cv=document.createElement('canvas'); cv.width=16; cv.height=512;
+  const g=cv.getContext('2d'); const gr=g.createLinearGradient(0,0,0,512);
+  gr.addColorStop(0,'#141d2a'); gr.addColorStop(0.55,'#0f1620'); gr.addColorStop(1,'#0d1117');
+  g.fillStyle=gr; g.fillRect(0,0,16,512);
+  const bt=new THREE.CanvasTexture(cv); bt.colorSpace=THREE.SRGBColorSpace;
+  scene.background=bt;
+}
 const camera = new THREE.PerspectiveCamera(45, innerWidth/innerHeight, 0.5, 8000);
 const renderer = new THREE.WebGLRenderer({ antialias:true });
 renderer.setPixelRatio(Math.min(devicePixelRatio,2));
 renderer.setSize(innerWidth, innerHeight);
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 document.getElementById('app').appendChild(renderer.domElement);
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true; controls.dampingFactor = 0.08;
 controls.maxPolarAngle = Math.PI*0.495;
 controls.minDistance = 4;            // get right up to a building
 controls.zoomToCursor = true;        // scroll/pinch zooms toward the pointer, not just center
-controls.zoomSpeed = 1.35;
+controls.zoomSpeed = 2.0;            // fast wheel zoom on desktop
+controls.autoRotateSpeed = 1.1;
 
-scene.add(new THREE.HemisphereLight(0xbcd4ff, 0x20241a, 0.6));
-const sun = new THREE.DirectionalLight(0xffffff, 2.0); scene.add(sun); scene.add(sun.target);
+scene.add(new THREE.HemisphereLight(0xbcd4ff, 0x20241a, 0.55));
+const sun = new THREE.DirectionalLight(0xffffff, 2.0);
+sun.castShadow = true;
+sun.shadow.mapSize.set(2048,2048);
+sun.shadow.bias = -0.0004;
+scene.add(sun); scene.add(sun.target);
 
 let group, uniforms, D, H, N, half, res, zmin, relief, outerRing;
 
@@ -197,6 +223,20 @@ function textSprite(txt,color){
   const sp=new THREE.Sprite(new THREE.SpriteMaterial({map:tx,depthTest:false,transparent:true}));
   sp.scale.set(26,13,1); return sp; }
 
+function roadLabel(txt){
+  const m=document.createElement('canvas').getContext('2d');
+  m.font='600 26px -apple-system,sans-serif';
+  const w=Math.ceil(m.measureText(txt).width)+26;
+  const cv=document.createElement('canvas'); cv.width=w; cv.height=42;
+  const g=cv.getContext('2d');
+  g.font='600 26px -apple-system,sans-serif'; g.textBaseline='middle';
+  g.fillStyle='rgba(13,17,23,0.78)'; g.beginPath(); g.roundRect(0,3,w,36,8); g.fill();
+  g.strokeStyle='#3d4650'; g.stroke();
+  g.fillStyle='#dce3ea'; g.fillText(txt,13,21);
+  const t=new THREE.CanvasTexture(cv); t.anisotropy=4;
+  const sp=new THREE.Sprite(new THREE.SpriteMaterial({map:t,depthTest:false,transparent:true}));
+  sp.scale.set(w*0.155,6.5,1); sp.renderOrder=3; return sp; }
+
 function build(key){
   D = window.TERRAIN[key];
   N = D.size; half = D.half; res = D.res; zmin = D.zmin; relief = D.zmax - D.zmin;
@@ -207,6 +247,12 @@ function build(key){
 
   if(group){ scene.remove(group); group.traverse(o=>{ o.geometry&&o.geometry.dispose(); o.material&&o.material.dispose && o.material.dispose(); }); }
   group = new THREE.Group(); scene.add(group);
+
+  // depth fog + shadow frustum sized to this tile
+  scene.fog = new THREE.Fog(0x0d1117, half*3.4, half*9);
+  const sc=sun.shadow.camera;
+  sc.left=-half*1.6; sc.right=half*1.6; sc.top=half*1.6; sc.bottom=-half*1.6;
+  sc.near=10; sc.far=Math.max(half*3,600)*2.4; sc.updateProjectionMatrix();
 
   // ---- clipped terrain mesh ----
   const pos=new Float32Array(N*N*3), col=new Float32Array(N*N*3), elev=new Float32Array(N*N), uv=new Float32Array(N*N*2);
@@ -240,7 +286,9 @@ function build(key){
        if(uContourOn>0.5){ float e=vE/uInterval; float g=abs(fract(e-0.5)-0.5)/fwidth(e); float ln=1.0-min(g,1.0);
          float e5=vE/(uInterval*5.0); float g5=abs(fract(e5-0.5)-0.5)/fwidth(e5); float ix=1.0-min(g5,1.0);
          gl_FragColor.rgb=mix(gl_FragColor.rgb,vec3(0.05,0.06,0.08),ln*0.5+ix*0.35); }`); };
-  const mesh=new THREE.Mesh(geo,mat); group.add(mesh);
+  const mesh=new THREE.Mesh(geo,mat);
+  mesh.castShadow=true; mesh.receiveShadow=true;
+  group.add(mesh);
 
   // ---- skirt walls along parcel boundary ----
   const base=-Math.max(relief*0.25,6);
@@ -274,6 +322,7 @@ function build(key){
     const geo=new THREE.ExtrudeGeometry(shape,{depth:b.height+found,bevelEnabled:false});
     geo.rotateX(-Math.PI/2);
     const bm=new THREE.Mesh(geo,[roofMat,wallMat]); bm.position.y=gmin*ex-found;
+    bm.castShadow=true; bm.receiveShadow=true;
     bgroup.add(bm);
     const eg=new THREE.LineSegments(new THREE.EdgesGeometry(geo,30),edgeMat); eg.position.copy(bm.position); bgroup.add(eg);
   }
@@ -295,11 +344,65 @@ function build(key){
     tmesh.name='trees'; tmesh.renderOrder=2; group.add(tmesh);
   }
 
+  // ---- roads: OSM ways draped as ribbons, name labels floated above ----
+  const rgroup=new THREE.Group(); rgroup.name='roads';
+  const ROADW={trunk:9,primary:8,secondary:7,tertiary:6,unclassified:5,residential:5,service:2.8,track:2.5,path:1.5,footway:1.5};
+  const roadMat=new THREE.MeshStandardMaterial({color:0x767c88,roughness:0.9,metalness:0,side:THREE.DoubleSide});
+  const inTile=(x,z)=>Math.abs(x)<half-0.5&&Math.abs(z)<half-0.5;
+  for(const rd of (D.roads||[])){
+    const w=ROADW[rd.kind]||4;
+    // subdivide (~4 m) so the ribbon follows the terrain, split into inside-tile runs
+    const runs=[]; let cur=[];
+    for(let i=0;i<rd.pts.length-1;i++){
+      const [x0,z0]=rd.pts[i],[x1,z1]=rd.pts[i+1];
+      const steps=Math.max(1,Math.ceil(Math.hypot(x1-x0,z1-z0)/4));
+      for(let s=0;s<steps;s++){ const t=s/steps, x=x0+(x1-x0)*t, z=z0+(z1-z0)*t;
+        if(inTile(x,z)) cur.push([x,z]); else if(cur.length){ runs.push(cur); cur=[]; } }
+    }
+    const le=rd.pts[rd.pts.length-1]; if(inTile(le[0],le[1])) cur.push(le);
+    if(cur.length>1) runs.push(cur);
+    for(const run of runs){
+      if(run.length<2) continue;
+      const verts=[], idxs=[];
+      for(let i=0;i<run.length;i++){
+        const [x,z]=run[i];
+        const [xp,zp]=run[Math.max(0,i-1)], [xn,zn]=run[Math.min(run.length-1,i+1)];
+        let dx=xn-xp,dz=zn-zp; const L=Math.hypot(dx,dz)||1; dx/=L; dz/=L;
+        const y=sampleH(x,z)*ex+0.35;
+        verts.push(x-dz*w/2,y,z+dx*w/2, x+dz*w/2,y,z-dx*w/2);
+        if(i<run.length-1){ const a=i*2; idxs.push(a,a+1,a+2, a+1,a+3,a+2); }
+      }
+      const rg=new THREE.BufferGeometry();
+      rg.setAttribute('position',new THREE.Float32BufferAttribute(verts,3));
+      rg.setIndex(idxs); rg.computeVertexNormals();
+      const rm=new THREE.Mesh(rg,roadMat); rm.receiveShadow=true; rgroup.add(rm);
+    }
+  }
+  const seenNames=new Set();
+  for(const rd of (D.roads||[])){
+    if(!rd.name||seenNames.has(rd.name)) continue;
+    let best=null,bd=Infinity;
+    for(const [x,z] of rd.pts){ if(!inTile(x,z)) continue; const dd=x*x+z*z; if(dd<bd){bd=dd;best=[x,z];} }
+    if(!best) continue;
+    seenNames.add(rd.name);
+    const sp=roadLabel(rd.name);
+    sp.position.set(best[0], sampleH(best[0],best[1])*ex+8, best[1]);
+    rgroup.add(sp);
+  }
+  group.add(rgroup);
+
   // ---- N/S/E/W labels ----
   const yLab=relief*ex*0.5+8, off=half+12;
   const labs=new THREE.Group(); labs.name='labels';
   const L=[['N',0,-off],['S',0,off],['E',off,0],['W',-off,0]];
   for(const [t,x,z] of L){ const s=textSprite(t,t==='N'?'#f85149':'#e6edf3'); s.position.set(x,yLab,z); labs.add(s); }
+  // 50 m scale bar along the south edge
+  const barY=sampleH(half-2,half-40)*ex;
+  const bar=new THREE.Mesh(new THREE.BoxGeometry(1.8,0.8,50),
+    new THREE.MeshBasicMaterial({color:0xc9d1d9}));
+  bar.position.set(half+10,barY+1.2,half-40);
+  labs.add(bar);
+  const bl=roadLabel('50 m'); bl.position.set(half+10,barY+8,half-40); labs.add(bl);
   group.add(labs);
 
   applyToggles();
@@ -314,6 +417,7 @@ function build(key){
   camera.position.copy(controls.target).addScaledVector(dir,fit);
   controls.maxDistance=half*7;
   controls.update();
+  document.querySelectorAll('.vbtn[data-view]').forEach(x=>x.classList.toggle('active',x.dataset.view==='oblique'));
   updateSun(); fillFacts(); fillCoords();
 }
 
@@ -322,6 +426,7 @@ function applyToggles(){ if(!group) return;
   g('outline') && (g('outline').visible=outline.checked);
   g('labels') && (g('labels').visible=labels.checked);
   g('buildings') && (g('buildings').visible=buildings.checked);
+  g('roads') && (g('roads').visible=roads.checked);
   g('trees') && (g('trees').visible=trees.checked); }
 
 function updateSun(){ const az=parseFloat(sun_.value)*Math.PI/180, el=42*Math.PI/180, r=Math.max(half*3,600);
@@ -333,7 +438,9 @@ function fillFacts(){ document.getElementById('facts').innerHTML=
   `<div><span class="k">Town</span><b>${D.town}</b></div>`+
   `<div><span class="k">Parcel</span><b>${D.acres} acres</b> <span style="color:var(--mut)">(assessor: ${D.acres_assessor})</span></div>`+
   `<div><span class="k">Relief</span><b>${relief.toFixed(1)} m</b> <span style="color:var(--mut)">(${(relief*3.281).toFixed(0)} ft) &middot; ${D.zmin.toFixed(0)}–${D.zmax.toFixed(0)} m</span></div>`+
-  (D.buildings&&D.buildings.length?`<div><span class="k">Buildings</span><b>${D.buildings.length}</b> <span style="color:var(--mut)">tallest ${Math.max(...D.buildings.map(b=>b.height)).toFixed(0)} m &middot; ${D.buildings[0].height_src.includes('LiDAR')?'LiDAR height':'est. height'}</span></div>`:''); }
+  (D.buildings&&D.buildings.length?`<div><span class="k">Buildings</span><b>${D.buildings.length}</b> <span style="color:var(--mut)">tallest ${Math.max(...D.buildings.map(b=>b.height)).toFixed(0)} m &middot; ${D.buildings[0].height_src.includes('LiDAR')?'LiDAR height':'est. height'}</span></div>`:'')+
+  (()=>{ const rn=[...new Set((D.roads||[]).filter(r=>r.name).map(r=>r.name))];
+    return rn.length?`<div><span class="k">Roads</span><b>${rn.join(', ')}</b></div>`:''; })(); }
 
 function fillCoords(){ const c=D.corners, ctr=D.center_lonlat;
   const nLat=(c.nw[1]+c.ne[1])/2, sLat=(c.sw[1]+c.se[1])/2, eLon=(c.ne[0]+c.se[0])/2, wLon=(c.nw[0]+c.sw[0])/2;
@@ -350,7 +457,8 @@ const exag=document.getElementById('exag'), sun_=document.getElementById('sun'),
   contours=document.getElementById('contours'), ci=document.getElementById('ci'),
   outline=document.getElementById('outline'), labels=document.getElementById('labels'),
   buildings=document.getElementById('buildings'), wire=document.getElementById('wire'),
-  aerial=document.getElementById('aerial'), trees=document.getElementById('trees');
+  aerial=document.getElementById('aerial'), trees=document.getElementById('trees'),
+  roads=document.getElementById('roads');
 
 const tabs=document.getElementById('tabs');
 Object.keys(window.TERRAIN).forEach((k,i)=>{ const el=document.createElement('div');
@@ -363,7 +471,37 @@ sun_.oninput=()=>{ document.getElementById('sunVal').innerHTML=sun_.value+'&deg;
 contours.onchange=()=>{ if(uniforms) uniforms.uContourOn.value=contours.checked?1:0; };
 ci.oninput=()=>{ const v=CI_STEPS[+ci.value]; document.getElementById('ciVal').textContent=v+' m'; if(uniforms) uniforms.uInterval.value=v; };
 outline.onchange=applyToggles; labels.onchange=applyToggles; buildings.onchange=applyToggles;
-trees.onchange=applyToggles; aerial.onchange=()=>build(currentKey());
+trees.onchange=applyToggles; roads.onchange=applyToggles; aerial.onchange=()=>build(currentKey());
+
+// ---- camera flights: view presets, spin, double-click zoom ----
+let tween=null;
+function flyTo(pos,tgt,dur=750){
+  tween={p0:camera.position.clone(),p1:pos,t0:controls.target.clone(),t1:tgt,s:performance.now(),d:dur}; }
+function viewPreset(kind){
+  const ex=parseFloat(exag.value), topH=relief*ex;
+  const R=half*1.4, fit=R/Math.sin(THREE.MathUtils.degToRad(camera.fov/2));
+  const tgt=new THREE.Vector3(0,topH*0.4,0);
+  let dir, d=fit;
+  if(kind==='top'){ dir=new THREE.Vector3(0.02,1,0.02); d=fit*0.92; }
+  else if(kind==='side'){ dir=new THREE.Vector3(0.94,0.2,0.28); }
+  else { dir=new THREE.Vector3(0.62,0.58,0.62); }
+  flyTo(tgt.clone().addScaledVector(dir.normalize(),d),tgt);
+}
+document.querySelectorAll('.vbtn[data-view]').forEach(b=>{
+  b.onclick=()=>{ document.querySelectorAll('.vbtn[data-view]').forEach(x=>x.classList.remove('active'));
+    b.classList.add('active'); viewPreset(b.dataset.view); };
+});
+const spinBtn=document.getElementById('spinBtn');
+spinBtn.onclick=()=>{ controls.autoRotate=!controls.autoRotate; spinBtn.classList.toggle('active',controls.autoRotate); };
+renderer.domElement.addEventListener('dblclick',e=>{
+  ptr.x=(e.clientX/innerWidth)*2-1; ptr.y=-(e.clientY/innerHeight)*2+1;
+  ray.setFromCamera(ptr,camera);
+  const m=group&&group.children[0]; const hit=m?ray.intersectObject(m,false):[];
+  if(!hit.length) return;
+  const p=hit[0].point;
+  const off=camera.position.clone().sub(controls.target).multiplyScalar(0.35);
+  flyTo(p.clone().add(off),p,650);
+});
 wire.onchange=()=>{ const m=group&&group.children[0]; if(m) m.material.wireframe=wire.checked; };
 function currentKey(){ return Object.keys(window.TERRAIN)[[...tabs.children].findIndex(c=>c.classList.contains('active'))]; }
 
@@ -404,7 +542,15 @@ document.addEventListener('pointerout',e=>{ if(e.target.closest('[data-tip]')===
 addEventListener('resize',()=>{ camera.aspect=innerWidth/innerHeight; camera.updateProjectionMatrix();
   renderer.setSize(innerWidth,innerHeight); const l=group&&group.getObjectByName('outline'); if(l) l.material.resolution.set(innerWidth,innerHeight); });
 
-function animate(){ requestAnimationFrame(animate); controls.update(); renderer.render(scene,camera); }
+renderer.domElement.addEventListener('pointerdown',()=>tween=null);
+renderer.domElement.addEventListener('wheel',()=>tween=null,{passive:true});
+function animate(){ requestAnimationFrame(animate);
+  if(tween){ const k=Math.min(1,(performance.now()-tween.s)/tween.d);
+    const e=k<0.5?2*k*k:-1+(4-2*k)*k;
+    camera.position.lerpVectors(tween.p0,tween.p1,e);
+    controls.target.lerpVectors(tween.t0,tween.t1,e);
+    if(k>=1) tween=null; }
+  controls.update(); renderer.render(scene,camera); }
 build(Object.keys(window.TERRAIN)[0]); animate();
 </script>
 </body>

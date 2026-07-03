@@ -138,6 +138,31 @@ for p in PROPS:
     tree = (veg & (tex_s > thr)).astype(np.uint8)   # green AND textured -> woody canopy
     print(f"    aerial {len(jpg)//1024} KB  tree cover {tree.mean()*100:.0f}% of tile")
 
+    # 7. roads (OpenStreetMap via Overpass) clipped to the tile bbox
+    c_sw = inv.transform(bbE0, bbN0); c_ne = inv.transform(bbE1, bbN1)
+    ql = (f'[out:json][timeout:25];(way["highway"]'
+          f'({c_sw[1]},{c_sw[0]},{c_ne[1]},{c_ne[0]}););out geom;')
+    roads = []
+    for mirror in ("https://overpass-api.de/api/interpreter",
+                   "https://overpass.kumi.systems/api/interpreter"):
+        try:
+            rq = urllib.request.Request(mirror,
+                data=urllib.parse.urlencode({"data": ql}).encode(),
+                headers={'User-Agent': 'topo/1.0'})
+            osm = json.load(urllib.request.urlopen(rq, timeout=45))
+            for w in osm.get("elements", []):
+                tags = w.get("tags", {})
+                pts = [to_mesh(*fwd.transform(g["lon"], g["lat"])) for g in w.get("geometry", [])]
+                if len(pts) < 2:
+                    continue
+                roads.append({"name": tags.get("name"), "kind": tags.get("highway"),
+                              "pts": [[round(x, 1), round(z, 1)] for x, z in pts]})
+            break
+        except Exception as ex:
+            print(f"    overpass {mirror.split('/')[2]} failed: {str(ex)[:60]}")
+    print(f"    roads: {len(roads)} way(s): " +
+          ", ".join(sorted({r['name'] for r in roads if r['name']})) or "(none)")
+
     out[p["id"]] = {
         "id": p["id"], "label": p["label"], "town": p["town"],
         "acres": round(acres, 2), "acres_assessor": p["acres_src"],
@@ -147,6 +172,7 @@ for p in PROPS:
         "poly_mesh": poly_mesh,          # rings in mesh xz
         "poly_lonlat": rings_ll,         # rings in lon/lat
         "buildings": buildings,          # footprints (mesh xz) + heights
+        "roads": roads,                  # OSM ways: name/kind + mesh-xz polylines
         "aerial_b64": base64.b64encode(jpg).decode(),        # ortho photo (jpg) for the drape
         "tree_b64": base64.b64encode(tree.tobytes()).decode(),  # uint8 tree mask, row0=north
         "heights_b64": base64.b64encode(arr.astype('<f4').tobytes()).decode(),
