@@ -16,8 +16,7 @@ labels; hover the terrain for live latitude / longitude / elevation.
 | NY parcel boundary | [NYS Tax Parcels Public](https://gis.ny.gov/parcels) (Orange County, 2025 roll) | Boundary polygon + assessor record. |
 | Building footprints | [FEMA USA Structures](https://gis-fema.hub.arcgis.com/pages/usa-structures) (Oak Ridge / USGS) | Footprints >450 sq ft with LiDAR-derived `HEIGHT`. Where height is missing, estimated from the assessor's story count. |
 | Aerial photo | [Esri World Imagery](https://www.arcgis.com/home/item.html?id=10df2279f9684e4a9f6a7f08febac2a9) | ~1 m ortho, exported for the same tile as the DEM and draped on the 3D surface. |
-| Tree canopy (where) | derived from the aerial photo | Vegetation = excess-green index (2G−R−B); trees = green **and** textured (rough canopy) vs. smooth mown/bare ground. |
-| Tree canopy (height) | [USGS 3DEP LiDAR via Planetary Computer](https://planetarycomputer.microsoft.com/dataset/3dep-lidar-hag) | Aquinnah: 2 m height-above-ground product (2013-14 flights, two tiles mosaicked). Cornwall: 2 m first-return DSM (2013) minus the bare-earth DEM. Encoded in half-meter steps. |
+| Tree canopy | [USGS 3DEP LiDAR via Planetary Computer](https://planetarycomputer.microsoft.com/dataset/3dep-lidar-hag) | Aquinnah: 2 m height-above-ground product (2013-14 flights, two tiles mosaicked). Cornwall: 2 m first-return DSM (2013) minus the bare-earth DEM. Trees = canopy ≥ 2.5 m, building footprints excluded. Encoded in half-meter steps. |
 | Roads | [OpenStreetMap](https://www.openstreetmap.org) via Overpass API | All `highway` ways in the tile, draped on the terrain as ribbons with approximate widths by class (trunk ≈9 m … driveway ≈3 m). Road data © OpenStreetMap contributors. |
 
 ## Method
@@ -58,13 +57,15 @@ polygons, base64-packed). `index.html` is a self-contained three.js viewer.
   (typically within a few meters).
 - Lat/long hover uses bilinear interpolation across the tile corners — accurate to well
   under a meter at this scale.
-- **Trees**: *where* trees are is inferred from summer aerial imagery (greenness + canopy
-  texture) — approximate, can miss individual trees or catch dense shrubs. *How tall* they
-  are is LiDAR-measured (2013-14 USGS flights), drawn as a translucent canopy surface at true
-  height and readable per-spot via hover. **The LiDAR is from 2013-14, so today's trees are
-  likely taller.** Aerial (where) and LiDAR (how tall) are different vintages. USGS/IO 10 m
-  land cover classes both entire parcels as forest; the derived layer's value is showing the
-  *cleared* homesite areas within that forest. **No streams or ponds** were found on either
+- **Trees**: both *where* trees are and *how tall* come from the same LiDAR (2013-14 USGS
+  flights): any spot with vegetation ≥ 2.5 m above ground is drawn as a translucent canopy
+  surface at its measured height (buildings excluded), readable per-spot via hover. Both
+  parcels are densely wooded — 92% canopy (Aquinnah) and 84% (Cornwall). An earlier version
+  inferred tree locations from the Esri aerial photo's greenness; that badly under-detected
+  Cornwall's trees because the ortho there is off-season (leaf-off) imagery — deciduous
+  canopy doesn't read green in it. The aerial-photo drape still shows that leaf-off look;
+  current summer imagery (e.g. Google) shows denser cover. **The LiDAR is from 2013-14, so
+  today's trees are likely taller and denser.** **No streams or ponds** were found on either
   parcel (confirmed against the aerial imagery and hydrography).
 - Only geographic data is published here (address, town, acreage, boundary, elevation).
   Owner names, assessed values and mailing addresses from the assessor records are **not**

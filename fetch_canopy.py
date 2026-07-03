@@ -88,6 +88,34 @@ for k, d in data.items():
     d["canopy_b64"] = base64.b64encode(enc.tobytes()).decode()
     d["canopy_src"] = src
 
+    # tree mask from the LiDAR itself: canopy >= 2.5 m, buildings excluded.
+    # (The Esri aerial for Cornwall is leaf-off/off-season, so the old greenness
+    # test badly under-detected trees there — LiDAR sees the actual canopy.)
+    res = 2 * half / size
+    tree = hag >= 2.5
+    bmask = np.zeros((size, size), dtype=bool)
+    for b in d.get("buildings", []):
+        ring = b["mesh"]
+        xs = [p[0] for p in ring]; zs = [p[1] for p in ring]
+        c0 = max(0, int((min(xs)+half)/res)-1); c1 = min(size-1, int((max(xs)+half)/res)+1)
+        r0 = max(0, int((min(zs)+half)/res)-1); r1 = min(size-1, int((max(zs)+half)/res)+1)
+        for r_ in range(r0, r1+1):
+            z = -half + (r_+0.5)*res
+            for c_ in range(c0, c1+1):
+                x = -half + (c_+0.5)*res
+                inside = False
+                for i in range(len(ring)-1):
+                    x1, z1 = ring[i]; x2, z2 = ring[i+1]
+                    if (z1 > z) != (z2 > z) and x < (x2-x1)*(z-z1)/(z2-z1)+x1:
+                        inside = not inside
+                if inside: bmask[r_, c_] = True
+    for _ in range(2):   # ~2 px dilation so roof-edge LiDAR returns don't read as trees
+        bmask |= np.roll(bmask,1,0)|np.roll(bmask,-1,0)|np.roll(bmask,1,1)|np.roll(bmask,-1,1)
+    tree &= ~bmask
+    print(f"    tree mask (LiDAR >=2.5m, buildings out): {tree.mean()*100:.0f}% of tile")
+    d["tree_b64"] = base64.b64encode(tree.astype(np.uint8).tobytes()).decode()
+    d["tree_src"] = "LiDAR canopy >= 2.5 m (2013-14), building footprints excluded"
+
 with open("terrain_data.js", "w") as f:
     f.write("window.TERRAIN = " + json.dumps(data) + ";\n")
 print("wrote terrain_data.js")
