@@ -46,6 +46,14 @@
     background:linear-gradient(90deg,#2f6b3f,#6a8f3c,#b8a56b,#96706c,#ecf0f3); }
   #legend .ends { display:flex; justify-content:space-between; }
   #compass { position:absolute; top:14px; right:14px; width:58px; height:58px; cursor:help; }
+  #profilePanel { position:absolute; left:50%; transform:translateX(-50%); bottom:56px; width:min(560px,calc(100vw - 24px));
+    display:none; z-index:15; }
+  #profilePanel h3 { margin:0 0 4px; font-size:12px; font-weight:600; display:flex; justify-content:space-between; }
+  #profilePanel .stats { font-size:11px; color:var(--mut); margin-bottom:6px; }
+  #profilePanel .stats b { color:var(--txt); font-variant-numeric:tabular-nums; }
+  #profilePanel .x { cursor:pointer; color:var(--mut); padding:0 4px; }
+  #profileHint { position:absolute; left:50%; transform:translateX(-50%); top:14px; z-index:15; display:none;
+    background:#1c2530ee; border:1px solid var(--gold); border-radius:8px; padding:7px 14px; font-size:12px; }
   #hover { position:absolute; pointer-events:none; background:#000c; border:1px solid var(--gold);
     border-radius:7px; padding:6px 9px; font-size:11px; line-height:1.5; display:none; z-index:20;
     font-variant-numeric:tabular-nums; white-space:nowrap; }
@@ -90,6 +98,13 @@
 
   <div class="row"><label data-tip="Rotates the simulated sunlight around the compass. Shadows and shading shift so you can pick out ridges, gullies and slope aspect. Measured in degrees clockwise from north.">Sun direction</label><span class="val" id="sunVal">315&deg;</span></div>
   <input type="range" id="sun" min="0" max="360" step="1" value="315">
+  <label class="toggle" style="margin-top:8px"><input type="checkbox" id="realsun"><span data-tip="Places the sun where it actually is for this property's latitude on the chosen date and hour (solar position from NOAA formulas, local solar time). Shadows then show real morning vs afternoon light &mdash; try a winter afternoon vs a June morning. Overrides the manual direction slider.">Real sun by date &amp; time</span></label>
+  <div id="sunTime" style="display:none">
+    <div class="row"><label data-tip="Month of the year. The sun rides high in June, low in December &mdash; watch shadow lengths change.">Month</label><span class="val" id="monVal">Jun</span></div>
+    <input type="range" id="mon" min="1" max="12" step="1" value="6">
+    <div class="row"><label data-tip="Hour of day, local solar time (solar noon = sun due south).">Hour</label><span class="val" id="hourVal">3 pm</span></div>
+    <input type="range" id="hour" min="5" max="21" step="0.5" value="15">
+  </div>
 
   <div class="divider"></div>
   <label class="toggle"><input type="checkbox" id="contours" checked><span data-tip="Draws lines connecting points of equal elevation, like a paper topo map. Every 5th line is heavier (an index contour). Closer-spaced lines mean steeper ground.">Contour lines</span></label>
@@ -106,6 +121,8 @@
     <div class="tab sbtn" data-surf="aspect">Aspect</div>
   </div>
   <label class="toggle"><input type="checkbox" id="trees"><span data-tip="A translucent green canopy surface wherever the LiDAR measured vegetation at least 2.5 m tall, drawn at its measured height &mdash; hover to read the height at any spot. Computed from the newest USGS flights (2021 for Aquinnah, 2022 for Cornwall) directly from the raw point clouds. Building footprints are excluded. Both properties are densely wooded. No streams or ponds were found on either parcel.">Trees (canopy)</span></label>
+  <label class="toggle"><input type="checkbox" id="drain"><span data-tip="Where rain concentrates as it runs downhill, computed from the terrain (D8 flow accumulation): each cell drains to its steepest neighbor, and blue traces appear where at least ~150 upslope cells feed through. These are ephemeral runoff paths &mdash; not mapped streams (neither parcel has one).">Drainage paths</span></label>
+  <label class="toggle"><input type="checkbox" id="viewshed"><span data-tip="Which parts of the parcel a person standing at the house (eye 2 m above ground) can theoretically see: gold tint = line-of-sight reaches that ground, computed by sweeping 720 sight rays over the bare-earth surface. Terrain-only &mdash; trees and buildings are NOT accounted for, so real visibility through this much forest is far less. Treat it as the cleared / leaf-off upper bound.">Viewshed from house</span></label>
   <label class="toggle"><input type="checkbox" id="labels" checked><span data-tip="North / South / East / West markers placed at the edges of the view. North also aligns with the compass at top-right.">Compass labels</span></label>
   <label class="toggle"><input type="checkbox" id="wire"><span data-tip="Shows the underlying triangular terrain mesh &mdash; every vertex is one ~1&#8202;m LiDAR elevation sample.">Wireframe</span></label>
 
@@ -115,6 +132,10 @@
     <div class="tab vbtn" data-view="top">Top</div>
     <div class="tab vbtn" data-view="side">Side</div>
     <div class="tab vbtn" id="spinBtn">Spin</div>
+  </div>
+  <div class="row" style="margin-top:10px"><label data-tip="Click Profile, then click two spots on the terrain: you get the elevation cross-section along that line &mdash; distance, climb, high/low points. Click Profile again to clear.">Tools</label></div>
+  <div class="tabs views">
+    <div class="tab vbtn" id="profileBtn">&#9968; Elevation profile</div>
   </div>
   </div>
 </div>
@@ -138,6 +159,12 @@
 
 <div id="hover"></div>
 <div id="tip"></div>
+<div id="profileHint">Click two points on the terrain&hellip;</div>
+<div id="profilePanel" class="panel">
+  <h3>Elevation profile <span class="x" id="profileClose">&#10005;</span></h3>
+  <div class="stats" id="profileStats"></div>
+  <svg id="profileSvg" width="100%" height="110" viewBox="0 0 540 110" preserveAspectRatio="none"></svg>
+</div>
 <div id="hint">drag&nbsp;·&nbsp;orbit&nbsp;&nbsp;·&nbsp;&nbsp;scroll&nbsp;·&nbsp;zoom&nbsp;&nbsp;·&nbsp;&nbsp;double-click&nbsp;·&nbsp;fly in&nbsp;&nbsp;·&nbsp;&nbsp;right-drag&nbsp;·&nbsp;pan&nbsp;&nbsp;·&nbsp;&nbsp;hover for lat/long</div>
 
 <script src="terrain_data.js"></script>
@@ -153,6 +180,8 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { Line2 } from 'three/addons/lines/Line2.js';
 import { LineMaterial } from 'three/addons/lines/LineMaterial.js';
 import { LineGeometry } from 'three/addons/lines/LineGeometry.js';
+import { LineSegments2 } from 'three/addons/lines/LineSegments2.js';
+import { LineSegmentsGeometry } from 'three/addons/lines/LineSegmentsGeometry.js';
 
 const CI_STEPS = [1, 2, 5, 10, 20];
 const RAMP = [[0,[47,107,63]],[0.2,[106,143,60]],[0.42,[184,165,107]],[0.65,[150,110,72]],[0.85,[120,96,80]],[1,[236,240,243]]];
@@ -185,7 +214,7 @@ controls.zoomToCursor = true;        // scroll/pinch zooms toward the pointer, n
 controls.zoomSpeed = 2.0;            // fast wheel zoom on desktop
 controls.autoRotateSpeed = 1.1;
 
-scene.add(new THREE.HemisphereLight(0xbcd4ff, 0x20241a, 0.55));
+const hemi=new THREE.HemisphereLight(0xbcd4ff, 0x20241a, 0.55); scene.add(hemi);
 const sun = new THREE.DirectionalLight(0xffffff, 2.0);
 sun.castShadow = true;
 sun.shadow.mapSize.set(2048,2048);
@@ -452,6 +481,7 @@ function build(key){
   const bl=roadLabel('50 m'); bl.position.set(half+10,barY+8,half-40); labs.add(bl);
   group.add(labs);
 
+  clearProfile();
   applyToggles();
   updateLegend();
   // frame: bird's-eye 3/4 view that fits the whole tile
@@ -473,11 +503,36 @@ function applyToggles(){ if(!group) return;
   g('labels') && (g('labels').visible=labels.checked);
   g('buildings') && (g('buildings').visible=buildings.checked);
   g('roads') && (g('roads').visible=roads.checked);
-  g('trees') && (g('trees').visible=trees.checked); }
+  g('trees') && (g('trees').visible=trees.checked);
+  if(drain.checked && !g('drainage')) buildDrainage();
+  g('drainage') && (g('drainage').visible=drain.checked);
+  if(viewshed.checked && !g('viewshed')) buildViewshed();
+  g('viewshed') && (g('viewshed').visible=viewshed.checked); }
 
-function updateSun(){ const az=parseFloat(sun_.value)*Math.PI/180, el=42*Math.PI/180, r=Math.max(half*3,600);
+function solarPos(latDeg, month, hour){
+  // NOAA-style approximation, local solar time; good to ~1° — plenty for shadows
+  const n=[15,46,74,105,135,166,196,227,258,288,319,349][month-1]; // mid-month day of year
+  const dec=23.44*Math.sin(2*Math.PI*(284+n)/365)*Math.PI/180;
+  const lat=latDeg*Math.PI/180, h=(hour-12)*15*Math.PI/180;
+  const sinEl=Math.sin(lat)*Math.sin(dec)+Math.cos(lat)*Math.cos(dec)*Math.cos(h);
+  const el=Math.asin(sinEl);
+  const az=Math.atan2(Math.sin(h), Math.cos(h)*Math.sin(lat)-Math.tan(dec)*Math.cos(lat))+Math.PI;
+  return [((az*180/Math.PI)%360+360)%360, el*180/Math.PI];
+}
+function updateSun(){
+  let azDeg, elDeg;
+  if(realsun.checked){
+    [azDeg,elDeg]=solarPos(D?D.center_lonlat[1]:41.4, parseInt(mon.value), parseFloat(hour.value));
+    if(elDeg<0){ sun.intensity=0.15; hemi.intensity=0.25; elDeg=2; }        // night: ambient only
+    else { const dim=Math.min(1,elDeg/25); sun.intensity=0.4+1.7*dim; hemi.intensity=0.35+0.25*dim; }
+  } else {
+    azDeg=parseFloat(sun_.value); elDeg=42; sun.intensity=2.0; hemi.intensity=0.55;
+  }
+  const az=azDeg*Math.PI/180, el=Math.max(elDeg,1.5)*Math.PI/180, r=Math.max(half*3,600);
   sun.position.set(Math.sin(az)*Math.cos(el)*r, Math.sin(el)*r, Math.cos(az)*Math.cos(el)*r);
-  document.getElementById('needle').setAttribute('transform',`rotate(${-parseFloat(sun_.value)} 29 29)`); }
+  document.getElementById('needle').setAttribute('transform',`rotate(${-azDeg} 29 29)`);
+  document.getElementById('sunVal').innerHTML=Math.round(azDeg)+'&deg;'+(realsun.checked?` · ${Math.round(Math.max(elDeg,0))}&deg; up`:'');
+}
 
 function fillFacts(){ document.getElementById('facts').innerHTML=
   `<div><span class="k">Address</span><b>${D.label}</b></div>`+
@@ -506,7 +561,17 @@ const exag=document.getElementById('exag'), sun_=document.getElementById('sun'),
   contours=document.getElementById('contours'), ci=document.getElementById('ci'),
   outline=document.getElementById('outline'), labels=document.getElementById('labels'),
   buildings=document.getElementById('buildings'), wire=document.getElementById('wire'),
-  trees=document.getElementById('trees'), roads=document.getElementById('roads');
+  trees=document.getElementById('trees'), roads=document.getElementById('roads'),
+  drain=document.getElementById('drain'), viewshed=document.getElementById('viewshed'),
+  realsun=document.getElementById('realsun'), mon=document.getElementById('mon'), hour=document.getElementById('hour');
+
+const MONTHS=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+const fmtHour=h=>{ const hh=Math.floor(h), mm=h%1?':30':''; const ap=hh<12?'am':'pm';
+  return ((hh+11)%12+1)+mm+' '+ap; };
+realsun.onchange=()=>{ document.getElementById('sunTime').style.display=realsun.checked?'block':'none';
+  sun_.disabled=realsun.checked; updateSun(); };
+mon.oninput=()=>{ document.getElementById('monVal').textContent=MONTHS[parseInt(mon.value)-1]; updateSun(); };
+hour.oninput=()=>{ document.getElementById('hourVal').textContent=fmtHour(parseFloat(hour.value)); updateSun(); };
 
 const tabs=document.getElementById('tabs');
 Object.keys(window.TERRAIN).forEach((k,i)=>{ const el=document.createElement('div');
@@ -520,6 +585,7 @@ contours.onchange=()=>{ if(uniforms) uniforms.uContourOn.value=contours.checked?
 ci.oninput=()=>{ const v=CI_STEPS[+ci.value]; document.getElementById('ciVal').textContent=v+' m'; if(uniforms) uniforms.uInterval.value=v; };
 outline.onchange=applyToggles; labels.onchange=applyToggles; buildings.onchange=applyToggles;
 trees.onchange=applyToggles; roads.onchange=applyToggles;
+drain.onchange=applyToggles; viewshed.onchange=applyToggles;
 
 // surface mode: swap material/colors in place — camera never resets
 function setSurf(mode){
@@ -536,6 +602,83 @@ function setSurf(mode){
   updateLegend();
 }
 document.querySelectorAll('.sbtn').forEach(b=>b.onclick=()=>setSurf(b.dataset.surf));
+
+// ---- drainage: D8 flow accumulation, blue traces where runoff concentrates ----
+function buildDrainage(){
+  if(group.getObjectByName('drainage')) return;
+  const ex=parseFloat(exag.value), n2=N*N;
+  const order=Array.from({length:n2},(_,i)=>i).sort((a,b)=>H[b]-H[a]); // high to low
+  const acc=new Float32Array(n2).fill(1), down=new Int32Array(n2).fill(-1);
+  for(const i of order){
+    const r=(i/N)|0, c=i%N; let best=-1, bd=0;
+    for(let dr=-1;dr<=1;dr++)for(let dc=-1;dc<=1;dc++){
+      if(!dr&&!dc) continue;
+      const rr=r+dr, cc=c+dc; if(rr<0||rr>=N||cc<0||cc>=N) continue;
+      const j=rr*N+cc, drop=(H[i]-H[j])/Math.hypot(dr,dc);
+      if(drop>bd){ bd=drop; best=j; }
+    }
+    down[i]=best; if(best>=0) acc[best]+=acc[i];
+  }
+  const segs=[], THRESH=150;
+  for(let i=0;i<n2;i++){
+    if(acc[i]<THRESH||down[i]<0) continue;
+    const r=(i/N)|0, c=i%N, j=down[i], r2=(j/N)|0, c2=j%N;
+    const x1=-half+(c+0.5)*res, z1=-half+(r+0.5)*res, x2=-half+(c2+0.5)*res, z2=-half+(r2+0.5)*res;
+    if(!inPoly((x1+x2)/2,(z1+z2)/2,outerRing)) continue;   // only on the parcel itself
+    segs.push(x1,(H[i]-zmin)*ex+0.5,z1, x2,(H[j]-zmin)*ex+0.5,z2);
+  }
+  if(!segs.length) return;
+  const g=new LineSegmentsGeometry(); g.setPositions(segs);
+  const m=new LineMaterial({color:0x58a6ff,linewidth:2.5,worldUnits:false,transparent:true,opacity:0.85});
+  m.resolution.set(innerWidth,innerHeight);
+  const ls=new LineSegments2(g,m); ls.name='drainage'; group.add(ls);
+}
+
+// ---- viewshed: radial sight-ray sweep from the house, bare-earth only ----
+function buildViewshed(){
+  if(group.getObjectByName('viewshed')) return;
+  const ex=parseFloat(exag.value);
+  let ox=0, oz=0;
+  const bs=(D.buildings||[]).filter(b=>b.occ!=='connector');
+  if(bs.length){ const ring=bs[0].mesh; ox=ring.reduce((s,p)=>s+p[0],0)/ring.length; oz=ring.reduce((s,p)=>s+p[1],0)/ring.length; }
+  const eyeH=sampleH(ox,oz)+zmin+2.0;                    // observer eye 2 m above ground
+  const vis=new Uint8Array(N*N);
+  const RAYS=720, step=res;
+  for(let k=0;k<RAYS;k++){
+    const a=k/RAYS*2*Math.PI, dx=Math.cos(a), dz=Math.sin(a);
+    let maxTan=-Infinity;
+    for(let t=step*2; ; t+=step){
+      const x=ox+dx*t, z=oz+dz*t;
+      if(Math.abs(x)>half-1||Math.abs(z)>half-1) break;
+      const gz=sampleH(x,z)+zmin;
+      const tan=(gz+0.5-eyeH)/t;                          // target 0.5 m above ground
+      if(tan>=maxTan-1e-4){
+        const c=Math.round((x+half)/res-0.5), r=Math.round((z+half)/res-0.5);
+        vis[r*N+c]=1;
+      }
+      const tanG=(gz-eyeH)/t;
+      if(tanG>maxTan) maxTan=tanG;
+    }
+  }
+  // dilate once to close radial gaps between rays
+  const vis2=new Uint8Array(vis);
+  for(let r=1;r<N-1;r++)for(let c=1;c<N-1;c++){ const i=r*N+c;
+    if(!vis[i]&&(vis[i-1]||vis[i+1]||vis[i-N]||vis[i+N])) vis2[i]=1; }
+  const posV=new Float32Array(N*N*3), idx=[];
+  for(let i=0;i<N*N;i++){ const r=(i/N)|0, c=i%N;
+    posV[i*3]=-half+(c+0.5)*res; posV[i*3+1]=(H[i]-zmin)*ex+0.3; posV[i*3+2]=-half+(r+0.5)*res; }
+  for(let r=0;r<N-1;r++)for(let c=0;c<N-1;c++){ const a=r*N+c;
+    const cx=-half+(c+1)*res, cz=-half+(r+1)*res;
+    if(vis2[a] && inPoly(cx,cz,outerRing)){ idx.push(a,(r+1)*N+c,a+1, a+1,(r+1)*N+c,(r+1)*N+c+1); } }
+  const g=new THREE.BufferGeometry();
+  g.setAttribute('position',new THREE.BufferAttribute(posV,3)); g.setIndex(idx); g.computeVertexNormals();
+  const mesh=new THREE.Mesh(g,new THREE.MeshBasicMaterial({color:0xe3b341,transparent:true,opacity:0.28,depthWrite:false,side:THREE.DoubleSide}));
+  mesh.name='viewshed'; mesh.renderOrder=1; group.add(mesh);
+  // observer marker
+  const eye=new THREE.Mesh(new THREE.SphereGeometry(1.6,12,12),new THREE.MeshBasicMaterial({color:0xe3b341}));
+  eye.position.set(ox, sampleH(ox,oz)*ex+2, oz);
+  mesh.add(eye);
+}
 
 function updateLegend(){
   const bar=document.querySelector('#legend .bar');
@@ -569,6 +712,74 @@ document.querySelectorAll('.vbtn[data-view]').forEach(b=>{
 });
 const spinBtn=document.getElementById('spinBtn');
 spinBtn.onclick=()=>{ controls.autoRotate=!controls.autoRotate; spinBtn.classList.toggle('active',controls.autoRotate); };
+// ---- elevation profile tool ----
+let profileMode=false, profilePts=[], downPos=null;
+const profileBtn=document.getElementById('profileBtn');
+function clearProfile(){
+  profilePts=[]; profileMode=false;
+  profileBtn.classList.remove('active');
+  document.getElementById('profileHint').style.display='none';
+  document.getElementById('profilePanel').style.display='none';
+  renderer.domElement.style.cursor='';
+  const old=group&&group.getObjectByName('profile'); if(old) group.remove(old);
+}
+profileBtn.onclick=()=>{
+  if(profileMode||group.getObjectByName('profile')){ clearProfile(); return; }
+  profileMode=true; profileBtn.classList.add('active');
+  document.getElementById('profileHint').style.display='block';
+  renderer.domElement.style.cursor='crosshair';
+};
+document.getElementById('profileClose').onclick=clearProfile;
+renderer.domElement.addEventListener('pointerdown',e=>{ downPos=[e.clientX,e.clientY]; });
+renderer.domElement.addEventListener('click',e=>{
+  if(!profileMode) return;
+  if(downPos && Math.hypot(e.clientX-downPos[0],e.clientY-downPos[1])>6) return; // was a drag
+  ptr.x=(e.clientX/innerWidth)*2-1; ptr.y=-(e.clientY/innerHeight)*2+1;
+  ray.setFromCamera(ptr,camera);
+  const m=group&&group.children[0]; const hit=m?ray.intersectObject(m,false):[];
+  if(!hit.length) return;
+  profilePts.push([hit[0].point.x,hit[0].point.z]);
+  const ex=parseFloat(exag.value);
+  let pg=group.getObjectByName('profile');
+  if(!pg){ pg=new THREE.Group(); pg.name='profile'; group.add(pg); }
+  const dot=new THREE.Mesh(new THREE.SphereGeometry(2,12,12),new THREE.MeshBasicMaterial({color:0x58e6b0}));
+  const [px,pz]=profilePts[profilePts.length-1];
+  dot.position.set(px,sampleH(px,pz)*ex+1.5,pz); pg.add(dot);
+  if(profilePts.length===2){
+    profileMode=false; renderer.domElement.style.cursor='';
+    document.getElementById('profileHint').style.display='none';
+    drawProfile(pg,ex);
+  }
+});
+function drawProfile(pg,ex){
+  const [[ax,az],[bx,bz]]=profilePts;
+  const NS=240, dist=Math.hypot(bx-ax,bz-az);
+  const elevs=[], lp=[];
+  for(let i=0;i<=NS;i++){ const t=i/NS, x=ax+(bx-ax)*t, z=az+(bz-az)*t;
+    const e=sampleH(x,z); elevs.push(e+zmin); lp.push(x,e*ex+0.8,z); }
+  const lg=new LineGeometry(); lg.setPositions(lp);
+  const lm=new LineMaterial({color:0x58e6b0,linewidth:3,worldUnits:false});
+  lm.resolution.set(innerWidth,innerHeight);
+  pg.add(new Line2(lg,lm));
+  // stats
+  const lo=Math.min(...elevs), hi=Math.max(...elevs);
+  let climb=0, drop=0;
+  for(let i=1;i<elevs.length;i++){ const d=elevs[i]-elevs[i-1]; if(d>0) climb+=d; else drop-=d; }
+  document.getElementById('profileStats').innerHTML=
+    `length <b>${dist.toFixed(0)} m</b> (${(dist*3.281).toFixed(0)} ft) &nbsp;·&nbsp; low <b>${lo.toFixed(1)} m</b> &nbsp;·&nbsp; high <b>${hi.toFixed(1)} m</b>`+
+    ` &nbsp;·&nbsp; climb <b>${climb.toFixed(1)} m</b> &nbsp;·&nbsp; descent <b>${drop.toFixed(1)} m</b>`;
+  // svg
+  const W=540, Hh=110, pad=6, span=Math.max(hi-lo,1);
+  let path=`M 0 ${Hh-pad-((elevs[0]-lo)/span)*(Hh-2*pad)}`;
+  elevs.forEach((e,i)=>{ path+=` L ${(i/NS*W).toFixed(1)} ${(Hh-pad-((e-lo)/span)*(Hh-2*pad)).toFixed(1)}`; });
+  document.getElementById('profileSvg').innerHTML=
+    `<path d="${path} L ${W} ${Hh} L 0 ${Hh} Z" fill="#58e6b022"/>`+
+    `<path d="${path}" fill="none" stroke="#58e6b0" stroke-width="2"/>`+
+    `<text x="4" y="12" font-size="10" fill="#8b949e">${hi.toFixed(0)} m</text>`+
+    `<text x="4" y="${Hh-4}" font-size="10" fill="#8b949e">${lo.toFixed(0)} m</text>`;
+  document.getElementById('profilePanel').style.display='block';
+}
+
 renderer.domElement.addEventListener('dblclick',e=>{
   ptr.x=(e.clientX/innerWidth)*2-1; ptr.y=-(e.clientY/innerHeight)*2+1;
   ray.setFromCamera(ptr,camera);
@@ -623,7 +834,8 @@ document.addEventListener('pointermove',e=>{ if(tip.style.display==='block'){ le
 document.addEventListener('pointerout',e=>{ if(e.target.closest('[data-tip]')===tipTgt){ tip.style.display='none'; tipTgt=null; } });
 
 addEventListener('resize',()=>{ camera.aspect=innerWidth/innerHeight; camera.updateProjectionMatrix();
-  renderer.setSize(innerWidth,innerHeight); const l=group&&group.getObjectByName('outline'); if(l) l.material.resolution.set(innerWidth,innerHeight); });
+  renderer.setSize(innerWidth,innerHeight);
+  group&&group.traverse(o=>{ if(o.material&&o.material.resolution) o.material.resolution.set(innerWidth,innerHeight); }); });
 
 renderer.domElement.addEventListener('pointerdown',()=>tween=null);
 renderer.domElement.addEventListener('wheel',()=>tween=null,{passive:true});

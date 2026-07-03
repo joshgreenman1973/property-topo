@@ -41,7 +41,19 @@ polygons, base64-packed). `index.html` is a self-contained three.js viewer.
   gold S, purple W; near-flat ground (<2°) is gray. South-facing slopes get the most sun.
 - **Relief** — the headline figure is highest minus lowest ground elevation **within the
   parcel boundary**; the secondary figure is the same range across the whole square view
-  tile (parcel + context margin).
+  tile (parcel + context margin). Parcel extremes cross-checked against the USGS EPQS
+  point-elevation service (agreement to the centimeter).
+- **Drainage paths** — D8 flow accumulation over the 1 m grid: each cell drains to its
+  steepest neighbor; traces are drawn where ≥150 upslope cells feed through, clipped to the
+  parcel. These are ephemeral runoff concentration paths, not mapped streams.
+- **Real sun by date & time** — NOAA solar-position formulas (declination + hour angle) for
+  the property's latitude, local solar time; sunlight dims and warms near the horizon and
+  the scene falls to ambient after sunset. Accurate to ~1°, ignores the equation of time.
+- **Viewshed** — 720 sight rays swept from an observer 2 m above ground at the house,
+  against the bare-earth surface, clipped to the parcel. Terrain-only: trees and buildings
+  are not occluders, so it is the cleared/leaf-off upper bound on visibility.
+- **Elevation profile** — click two points; the cross-section samples the 1 m grid every
+  ~0.4% of the line and reports length, high/low, climb and descent.
 
 ## Caveats & confidence
 
