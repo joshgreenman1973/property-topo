@@ -39,9 +39,16 @@ polygons, base64-packed). `index.html` is a self-contained three.js viewer.
 - **Elevation is bare-earth**, so buildings and tree canopy are removed from the ground
   surface. The buildings are added back separately as 3D blocks placed on that surface.
 - **Buildings are LOD1 blocks** — real footprint and location, extruded to a single flat-roof
-  height. Height is LiDAR-measured where FEMA provides it (Cornwall's two structures, ~7 m),
-  otherwise estimated from the assessor's story count (Aquinnah, 2.5 stories → ~8 m). Roof
-  pitch and architectural detail are not modeled.
+  height. Height is LiDAR-measured where FEMA provides it (Cornwall, ~7 m), otherwise
+  estimated from the assessor's story count (Aquinnah, 2.5 stories → ~8 m). Roof pitch and
+  architectural detail are not modeled.
+- **Cornwall's house appears in FEMA's data as two separate footprints** 5.4 m apart. The
+  LiDAR shows 4–12 m returns over the gap — tree canopy arching over the middle of the
+  house — so FEMA's imagery-based extraction couldn't see the connecting section. The
+  assessor records one dwelling (3,518 sq ft living ≈ the two footprints × 2 stories) and
+  the owner confirms one building, so footprints within 8 m are clustered as one building
+  and joined by an **inferred connector** (5 m wide, at the lower wing's height). The
+  connector's exact shape is not measured — it is marked as inferred in the data.
 - **Acreage** shown is computed from the polygon (shoelace on UTM coordinates); the
   assessor's stated acreage is shown alongside for comparison. Small differences are normal
   (survey vs. GIS digitizing).

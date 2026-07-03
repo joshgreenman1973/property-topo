@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Fetch real parcel polygons + DEM clipped to each lot, pack to terrain_data.js."""
+import math
 import urllib.request, urllib.parse, io, json, base64, math
 import numpy as np
 from PIL import Image
@@ -117,7 +118,40 @@ for p in PROPS:
             "height": round(height, 1), "height_src": hsrc,
             "occ": a.get("PRIM_OCC"), "sqft": round(a.get("SQFEET") or 0),
         })
-    print(f"    buildings: {len(buildings)} -> " +
+    # cluster footprints within 8 m into one building: FEMA's imagery extraction can
+    # split a single house whose middle section is hidden under tree canopy (Cornwall's
+    # 1975 contemporary reads as two roof masses; assessor + owner say one dwelling).
+    def vdist(a, b):
+        return min(math.hypot(p[0]-q[0], p[1]-q[1]) for p in a["mesh"] for q in b["mesh"])
+    clusters = []
+    for b in buildings:
+        for cl in clusters:
+            if any(vdist(b, o) <= 8.0 for o in cl):
+                cl.append(b); break
+        else:
+            clusters.append([b])
+    connectors = []
+    for cl in clusters:
+        for i in range(len(cl) - 1):
+            a, b = cl[i], cl[i+1]
+            pa, pb = min(((p, q) for p in a["mesh"] for q in b["mesh"]),
+                         key=lambda t: math.hypot(t[0][0]-t[1][0], t[0][1]-t[1][1]))
+            dx, dz = pb[0]-pa[0], pb[1]-pa[1]
+            L = math.hypot(dx, dz) or 1
+            nx, nz = -dz/L*2.5, dx/L*2.5      # 5 m wide connector
+            ext = 1.5                          # tuck ends into each wing
+            ex_, ez = dx/L*ext, dz/L*ext
+            connectors.append({
+                "mesh": [[pa[0]-ex_+nx, pa[1]-ez+nz], [pb[0]+ex_+nx, pb[1]+ez+nz],
+                         [pb[0]+ex_-nx, pb[1]+ez-nz], [pa[0]-ex_-nx, pa[1]-ez-nz],
+                         [pa[0]-ex_+nx, pa[1]-ez+nz]],
+                "lonlat": [], "height": round(min(a["height"], b["height"]), 1),
+                "height_src": "inferred connector (hidden under tree canopy in source data)",
+                "occ": "connector", "sqft": 0})
+    buildings += connectors
+    n_buildings = len(clusters)
+    print(f"    buildings: {n_buildings} ({len(buildings)-len(connectors)} FEMA footprints, "
+          f"{len(connectors)} inferred connector(s)) -> " +
           ", ".join(f"{b['occ']} {b['sqft']}sf h={b['height']}m" for b in buildings))
 
     # 6. aerial ortho (Esri World Imagery) for the photo drape + tree detection
@@ -172,6 +206,7 @@ for p in PROPS:
         "poly_mesh": poly_mesh,          # rings in mesh xz
         "poly_lonlat": rings_ll,         # rings in lon/lat
         "buildings": buildings,          # footprints (mesh xz) + heights
+        "n_buildings": n_buildings,      # footprints clustered within 8 m = one building
         "roads": roads,                  # OSM ways: name/kind + mesh-xz polylines
         "aerial_b64": base64.b64encode(jpg).decode(),        # ortho photo (jpg) for the drape
         "tree_b64": base64.b64encode(tree.tobytes()).decode(),  # uint8 tree mask, row0=north
