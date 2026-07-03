@@ -1,0 +1,312 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Property topography &mdash; parcel-shaped 3D terrain</title>
+<style>
+  :root { --bg:#0d1117; --panel:#161b22e6; --line:#30363d; --txt:#e6edf3; --mut:#8b949e; --accent:#58a6ff; --gold:#e3b341; }
+  * { box-sizing:border-box; }
+  html,body { margin:0; height:100%; background:var(--bg); color:var(--txt);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif; overflow:hidden; }
+  #app { position:fixed; inset:0; }
+  canvas { display:block; }
+  .panel { position:absolute; background:var(--panel); backdrop-filter:blur(12px);
+    border:1px solid var(--line); border-radius:12px; padding:14px 16px; }
+  #controls { top:14px; left:14px; width:294px; max-height:calc(100vh - 28px); overflow-y:auto; }
+  #controls h1 { font-size:14px; font-weight:600; margin:0 0 2px; }
+  #controls .sub { font-size:11px; color:var(--mut); margin-bottom:12px; }
+  .tabs { display:flex; gap:6px; margin-bottom:12px; }
+  .tab { flex:1; padding:8px 6px; font-size:12px; text-align:center; cursor:pointer;
+    border:1px solid var(--line); border-radius:8px; background:#21262d; color:var(--mut); transition:.15s; }
+  .tab.active { background:var(--accent); color:#0d1117; border-color:var(--accent); font-weight:600; }
+  .facts { font-size:11.5px; line-height:1.6; background:#0d1117aa; border:1px solid var(--line);
+    border-radius:8px; padding:8px 10px; margin-bottom:12px; }
+  .facts .k { color:var(--mut); display:inline-block; min-width:74px; }
+  .facts b { color:var(--txt); }
+  .row { display:flex; align-items:center; justify-content:space-between; margin:12px 0 4px; font-size:12px; }
+  .row label { color:var(--mut); cursor:help; border-bottom:1px dotted #4c545c; }
+  .row .val { font-variant-numeric:tabular-nums; }
+  input[type=range] { width:100%; accent-color:var(--accent); margin:0; }
+  .toggle { display:flex; align-items:center; gap:8px; font-size:12px; margin:11px 0 2px; cursor:pointer; color:var(--mut); }
+  .toggle span { cursor:help; border-bottom:1px dotted #4c545c; }
+  .toggle input { accent-color:var(--accent); width:15px; height:15px; }
+  .divider { height:1px; background:var(--line); margin:12px 0; }
+  #coords { bottom:14px; left:14px; width:294px; font-size:11px; line-height:1.7; }
+  #coords h2 { font-size:11px; text-transform:uppercase; letter-spacing:.06em; color:var(--mut); margin:0 0 8px; font-weight:600; }
+  #coords .cgrid { display:grid; grid-template-columns:auto 1fr; gap:2px 10px; }
+  #coords .lbl { color:var(--mut); cursor:help; }
+  #coords b { font-variant-numeric:tabular-nums; }
+  #legend { position:absolute; bottom:14px; right:14px; width:150px; font-size:10px; color:var(--mut); }
+  #legend .bar { height:10px; border-radius:3px; margin:5px 0 3px;
+    background:linear-gradient(90deg,#2f6b3f,#6a8f3c,#b8a56b,#96706c,#ecf0f3); }
+  #legend .ends { display:flex; justify-content:space-between; }
+  #compass { position:absolute; top:14px; right:14px; width:58px; height:58px; cursor:help; }
+  #hover { position:absolute; pointer-events:none; background:#000c; border:1px solid var(--gold);
+    border-radius:7px; padding:6px 9px; font-size:11px; line-height:1.5; display:none; z-index:20;
+    font-variant-numeric:tabular-nums; white-space:nowrap; }
+  #hover .g { color:var(--gold); }
+  #tip { position:fixed; pointer-events:none; max-width:250px; background:#1c2530; color:var(--txt);
+    border:1px solid var(--accent); border-radius:8px; padding:8px 11px; font-size:11.5px; line-height:1.5;
+    display:none; z-index:50; box-shadow:0 6px 24px #000a; }
+  #hint { position:absolute; bottom:14px; left:50%; transform:translateX(-50%); font-size:11px; color:var(--mut);
+    background:#0d1117aa; padding:5px 12px; border-radius:20px; border:1px solid var(--line); }
+  a.src { color:var(--mut); }
+</style>
+</head>
+<body>
+<div id="app"></div>
+
+<div id="controls" class="panel">
+  <h1>Property topography</h1>
+  <div class="sub">Parcel-shaped 3D terrain &middot; 1&#8202;m USGS 3DEP LiDAR</div>
+  <div class="tabs" id="tabs"></div>
+  <div class="facts" id="facts"></div>
+
+  <div class="row"><label data-tip="Stretches the terrain's height to make gentle slopes easier to read. It does NOT change the real elevation numbers shown below &mdash; it's purely visual. 1&times; is true-to-life.">Vertical exaggeration</label><span class="val" id="exagVal">1.5&times;</span></div>
+  <input type="range" id="exag" min="1" max="4" step="0.1" value="1.5">
+
+  <div class="row"><label data-tip="Rotates the simulated sunlight around the compass. Shadows and shading shift so you can pick out ridges, gullies and slope aspect. Measured in degrees clockwise from north.">Sun direction</label><span class="val" id="sunVal">315&deg;</span></div>
+  <input type="range" id="sun" min="0" max="360" step="1" value="315">
+
+  <div class="divider"></div>
+  <label class="toggle"><input type="checkbox" id="contours" checked><span data-tip="Draws lines connecting points of equal elevation, like a paper topo map. Every 5th line is heavier (an index contour). Closer-spaced lines mean steeper ground.">Contour lines</span></label>
+  <div class="row" style="margin-top:6px"><label data-tip="Vertical spacing between contour lines, in meters of elevation. Smaller intervals show more detail but crowd together on steep slopes.">Contour interval</label><span class="val" id="ciVal">2 m</span></div>
+  <input type="range" id="ci" min="0" max="4" step="1" value="1">
+  <label class="toggle"><input type="checkbox" id="outline" checked><span data-tip="The gold line is the legal property boundary from the official assessor's parcel map, draped onto the 3D surface at its true elevation.">Parcel boundary</span></label>
+  <label class="toggle"><input type="checkbox" id="labels" checked><span data-tip="North / South / East / West markers placed at the edges of the view. North also aligns with the compass at top-right.">Compass labels</span></label>
+  <label class="toggle"><input type="checkbox" id="wire"><span data-tip="Shows the underlying triangular terrain mesh &mdash; every vertex is one ~1&#8202;m LiDAR elevation sample.">Wireframe</span></label>
+</div>
+
+<div id="coords" class="panel">
+  <h2>Coordinates &amp; extent</h2>
+  <div class="cgrid" id="cgrid"></div>
+</div>
+
+<div id="legend" class="panel">
+  <div data-tip="Color shades the terrain from the lowest elevation in this parcel (left) to the highest (right). It's a relative ramp &mdash; the exact meters are labeled below." style="cursor:help;border-bottom:1px dotted #4c545c;display:inline-block">Elevation</div>
+  <div class="bar"></div>
+  <div class="ends"><span id="legLo">low</span><span id="legHi">high</span></div>
+</div>
+
+<svg id="compass" viewBox="0 0 58 58" data-tip="Points to true north. The red arrow tracks the sun-direction control; the whole scene is oriented so north is toward the far edge.">
+  <circle cx="29" cy="29" r="27" fill="#161b22e6" stroke="#30363d"/>
+  <g id="needle"><polygon points="29,7 24.5,31 33.5,31" fill="#f85149"/><polygon points="29,51 24.5,31 33.5,31" fill="#8b949e"/></g>
+  <text x="29" y="18" text-anchor="middle" font-size="9" fill="#e6edf3" font-weight="700">N</text>
+</svg>
+
+<div id="hover"></div>
+<div id="tip"></div>
+<div id="hint">drag&nbsp;·&nbsp;orbit&nbsp;&nbsp;·&nbsp;&nbsp;scroll&nbsp;·&nbsp;zoom&nbsp;&nbsp;·&nbsp;&nbsp;right-drag&nbsp;·&nbsp;pan&nbsp;&nbsp;·&nbsp;&nbsp;hover terrain for lat/long</div>
+
+<script src="terrain_data.js"></script>
+<script type="importmap">
+{ "imports": {
+  "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+  "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+}}
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { Line2 } from 'three/addons/lines/Line2.js';
+import { LineMaterial } from 'three/addons/lines/LineMaterial.js';
+import { LineGeometry } from 'three/addons/lines/LineGeometry.js';
+
+const CI_STEPS = [1, 2, 5, 10, 20];
+const RAMP = [[0,[47,107,63]],[0.2,[106,143,60]],[0.42,[184,165,107]],[0.65,[150,110,72]],[0.85,[120,96,80]],[1,[236,240,243]]];
+function ramp(t){ t=Math.max(0,Math.min(1,t));
+  for(let i=0;i<RAMP.length-1;i++){ const [a,ca]=RAMP[i],[b,cb]=RAMP[i+1];
+    if(t<=b){ const f=(t-a)/(b-a); return [ca[0]+(cb[0]-ca[0])*f, ca[1]+(cb[1]-ca[1])*f, ca[2]+(cb[2]-ca[2])*f].map(v=>v/255); } }
+  return [1,1,1]; }
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x0d1117);
+const camera = new THREE.PerspectiveCamera(45, innerWidth/innerHeight, 0.5, 8000);
+const renderer = new THREE.WebGLRenderer({ antialias:true });
+renderer.setPixelRatio(Math.min(devicePixelRatio,2));
+renderer.setSize(innerWidth, innerHeight);
+document.getElementById('app').appendChild(renderer.domElement);
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true; controls.dampingFactor = 0.08;
+controls.maxPolarAngle = Math.PI*0.495; controls.minDistance = 30;
+
+scene.add(new THREE.HemisphereLight(0xbcd4ff, 0x20241a, 0.6));
+const sun = new THREE.DirectionalLight(0xffffff, 2.0); scene.add(sun); scene.add(sun.target);
+
+let group, uniforms, D, H, N, half, res, zmin, relief, outerRing;
+
+function decode(b64){ const bin=atob(b64); const u8=new Uint8Array(bin.length);
+  for(let i=0;i<bin.length;i++) u8[i]=bin.charCodeAt(i); return new Float32Array(u8.buffer); }
+function inPoly(x,z,ring){ let inside=false;
+  for(let i=0,j=ring.length-1;i<ring.length;j=i++){ const xi=ring[i][0],zi=ring[i][1],xj=ring[j][0],zj=ring[j][1];
+    if(((zi>z)!==(zj>z)) && (x < (xj-xi)*(z-zi)/(zj-zi)+xi)) inside=!inside; } return inside; }
+function sampleH(x,z){ let c=(x+half)/res-0.5, r=(z+half)/res-0.5;
+  c=Math.max(0,Math.min(N-1,c)); r=Math.max(0,Math.min(N-1,r));
+  const c0=Math.floor(c),r0=Math.floor(r),c1=Math.min(c0+1,N-1),r1=Math.min(r0+1,N-1),fc=c-c0,fr=r-r0;
+  const a=H[r0*N+c0]+(H[r0*N+c1]-H[r0*N+c0])*fc, b=H[r1*N+c0]+(H[r1*N+c1]-H[r1*N+c0])*fc;
+  return (a+(b-a)*fr)-zmin; }
+// mesh xz -> lon/lat via bilinear over the tile corners
+function lonlat(x,z){ const u=(x+half)/(2*half), v=(z+half)/(2*half), c=D.corners;
+  const tLon=c.nw[0]+(c.ne[0]-c.nw[0])*u, tLat=c.nw[1]+(c.ne[1]-c.nw[1])*u;
+  const bLon=c.sw[0]+(c.se[0]-c.sw[0])*u, bLat=c.sw[1]+(c.se[1]-c.sw[1])*u;
+  return [tLon+(bLon-tLon)*v, tLat+(bLat-tLat)*v]; }
+const fmtLat=l=>`${Math.abs(l).toFixed(5)}°${l>=0?'N':'S'}`;
+const fmtLon=l=>`${Math.abs(l).toFixed(5)}°${l>=0?'E':'W'}`;
+
+function textSprite(txt,color){
+  const cv=document.createElement('canvas'); cv.width=128; cv.height=64; const g=cv.getContext('2d');
+  g.font='bold 44px -apple-system,sans-serif'; g.textAlign='center'; g.textBaseline='middle';
+  g.fillStyle='rgba(13,17,23,0.72)'; g.beginPath(); g.roundRect(24,10,80,44,10); g.fill();
+  g.fillStyle=color; g.fillText(txt,64,34);
+  const tx=new THREE.CanvasTexture(cv); tx.anisotropy=4;
+  const sp=new THREE.Sprite(new THREE.SpriteMaterial({map:tx,depthTest:false,transparent:true}));
+  sp.scale.set(26,13,1); return sp; }
+
+function build(key){
+  D = window.TERRAIN[key];
+  N = D.size; half = D.half; res = D.res; zmin = D.zmin; relief = D.zmax - D.zmin;
+  H = decode(D.heights_b64);
+  outerRing = D.poly_mesh.reduce((a,b)=>b.length>a.length?b:a);
+  const ex = parseFloat(exag.value);
+
+  if(group){ scene.remove(group); group.traverse(o=>{ o.geometry&&o.geometry.dispose(); o.material&&o.material.dispose && o.material.dispose(); }); }
+  group = new THREE.Group(); scene.add(group);
+
+  // ---- clipped terrain mesh ----
+  const pos=new Float32Array(N*N*3), col=new Float32Array(N*N*3), elev=new Float32Array(N*N);
+  for(let r=0;r<N;r++)for(let c=0;c<N;c++){ const i=r*N+c;
+    const x=-half+(c+0.5)*res, z=-half+(r+0.5)*res, hz=H[i];
+    pos[i*3]=x; pos[i*3+1]=hz-zmin; pos[i*3+2]=z; elev[i]=hz;
+    const cc=ramp(relief>0?(hz-zmin)/relief:0.5); col[i*3]=cc[0]; col[i*3+1]=cc[1]; col[i*3+2]=cc[2]; }
+  const idx=[];
+  for(let r=0;r<N-1;r++)for(let c=0;c<N-1;c++){
+    const a=r*N+c,b=r*N+c+1,d=(r+1)*N+c,e=(r+1)*N+c+1;
+    const cx=-half+(c+1)*res, cz=-half+(r+1)*res;
+    if(inPoly(cx,cz,outerRing)){ idx.push(a,d,b, b,d,e); } }
+  const geo=new THREE.BufferGeometry();
+  geo.setAttribute('position',new THREE.BufferAttribute(pos,3));
+  geo.setAttribute('color',new THREE.BufferAttribute(col,3));
+  geo.setAttribute('trueElev',new THREE.BufferAttribute(elev,1));
+  geo.setIndex(idx); geo.computeVertexNormals();
+
+  uniforms={ uExag:{value:ex}, uContourOn:{value:contours.checked?1:0}, uInterval:{value:CI_STEPS[+ci.value]} };
+  const mat=new THREE.MeshStandardMaterial({vertexColors:true,roughness:0.95,metalness:0,side:THREE.DoubleSide,wireframe:wire.checked});
+  mat.onBeforeCompile=(sh)=>{ Object.assign(sh.uniforms,uniforms);
+    sh.vertexShader='attribute float trueElev;\nvarying float vE;\nuniform float uExag;\n'+
+      sh.vertexShader.replace('#include <begin_vertex>','#include <begin_vertex>\n transformed.y*=uExag;\n vE=trueElev;');
+    sh.fragmentShader='varying float vE;\nuniform float uContourOn;\nuniform float uInterval;\n'+
+      sh.fragmentShader.replace('#include <dithering_fragment>',
+      `#include <dithering_fragment>
+       if(uContourOn>0.5){ float e=vE/uInterval; float g=abs(fract(e-0.5)-0.5)/fwidth(e); float ln=1.0-min(g,1.0);
+         float e5=vE/(uInterval*5.0); float g5=abs(fract(e5-0.5)-0.5)/fwidth(e5); float ix=1.0-min(g5,1.0);
+         gl_FragColor.rgb=mix(gl_FragColor.rgb,vec3(0.05,0.06,0.08),ln*0.5+ix*0.35); }`); };
+  const mesh=new THREE.Mesh(geo,mat); group.add(mesh);
+
+  // ---- skirt walls along parcel boundary ----
+  const base=-Math.max(relief*0.25,6);
+  const sv=[];
+  for(let i=0;i<outerRing.length-1;i++){ const [x0,z0]=outerRing[i],[x1,z1]=outerRing[i+1];
+    const y0=sampleH(x0,z0)*ex, y1=sampleH(x1,z1)*ex;
+    sv.push(x0,y0,z0, x1,y1,z1, x1,base,z1,  x0,y0,z0, x1,base,z1, x0,base,z0); }
+  const sg=new THREE.BufferGeometry(); sg.setAttribute('position',new THREE.Float32BufferAttribute(sv,3)); sg.computeVertexNormals();
+  group.add(new THREE.Mesh(sg,new THREE.MeshStandardMaterial({color:0x39322a,roughness:1,metalness:0,side:THREE.DoubleSide})));
+
+  // ---- parcel boundary line (draped) ----
+  const lp=[]; for(const [x,z] of outerRing){ lp.push(x, sampleH(x,z)*ex+0.6, z); }
+  const lg=new LineGeometry(); lg.setPositions(lp);
+  const lm=new LineMaterial({color:0xe3b341,linewidth:3,worldUnits:false,dashed:false});
+  lm.resolution.set(innerWidth,innerHeight);
+  const line=new Line2(lg,lm); line.computeLineDistances(); line.name='outline'; group.add(line);
+
+  // ---- N/S/E/W labels ----
+  const yLab=relief*ex*0.5+8, off=half+12;
+  const labs=new THREE.Group(); labs.name='labels';
+  const L=[['N',0,-off],['S',0,off],['E',off,0],['W',-off,0]];
+  for(const [t,x,z] of L){ const s=textSprite(t,t==='N'?'#f85149':'#e6edf3'); s.position.set(x,yLab,z); labs.add(s); }
+  group.add(labs);
+
+  applyToggles();
+  document.getElementById('legLo').textContent=D.zmin.toFixed(0)+' m';
+  document.getElementById('legHi').textContent=D.zmax.toFixed(0)+' m';
+  // frame: bird's-eye 3/4 view that fits the whole tile
+  const topH=relief*ex;
+  const R=half*1.4;
+  const fit=R/Math.sin(THREE.MathUtils.degToRad(camera.fov/2));
+  controls.target.set(0,topH*0.4,0);
+  const dir=new THREE.Vector3(0.62,0.58,0.62).normalize();
+  camera.position.copy(controls.target).addScaledVector(dir,fit);
+  controls.update();
+  updateSun(); fillFacts(); fillCoords();
+}
+
+function applyToggles(){ if(!group) return;
+  group.getObjectByName('outline') && (group.getObjectByName('outline').visible=outline.checked);
+  group.getObjectByName('labels') && (group.getObjectByName('labels').visible=labels.checked); }
+
+function updateSun(){ const az=parseFloat(sun_.value)*Math.PI/180, el=42*Math.PI/180, r=Math.max(half*3,600);
+  sun.position.set(Math.sin(az)*Math.cos(el)*r, Math.sin(el)*r, Math.cos(az)*Math.cos(el)*r);
+  document.getElementById('needle').setAttribute('transform',`rotate(${-parseFloat(sun_.value)} 29 29)`); }
+
+function fillFacts(){ document.getElementById('facts').innerHTML=
+  `<div><span class="k">Address</span><b>${D.label}</b></div>`+
+  `<div><span class="k">Town</span><b>${D.town}</b></div>`+
+  `<div><span class="k">Parcel</span><b>${D.acres} acres</b> <span style="color:var(--mut)">(assessor: ${D.acres_assessor})</span></div>`+
+  `<div><span class="k">Relief</span><b>${relief.toFixed(1)} m</b> <span style="color:var(--mut)">(${(relief*3.281).toFixed(0)} ft) &middot; ${D.zmin.toFixed(0)}–${D.zmax.toFixed(0)} m</span></div>`; }
+
+function fillCoords(){ const c=D.corners, ctr=D.center_lonlat;
+  const nLat=(c.nw[1]+c.ne[1])/2, sLat=(c.sw[1]+c.se[1])/2, eLon=(c.ne[0]+c.se[0])/2, wLon=(c.nw[0]+c.sw[0])/2;
+  document.getElementById('cgrid').innerHTML=
+    `<span class="lbl" data-tip="Latitude / longitude of the center of the view, in decimal degrees (WGS84).">Center</span><b>${fmtLat(ctr[1])}, ${fmtLon(ctr[0])}</b>`+
+    `<span class="lbl" data-tip="Latitude of the northern edge of the terrain tile.">North edge</span><b>${fmtLat(nLat)}</b>`+
+    `<span class="lbl" data-tip="Latitude of the southern edge of the terrain tile.">South edge</span><b>${fmtLat(sLat)}</b>`+
+    `<span class="lbl" data-tip="Longitude of the eastern edge of the terrain tile.">East edge</span><b>${fmtLon(eLon)}</b>`+
+    `<span class="lbl" data-tip="Longitude of the western edge of the terrain tile.">West edge</span><b>${fmtLon(wLon)}</b>`+
+    `<span class="lbl" data-tip="Width of the square terrain tile on each side, in meters. The parcel sits inside it.">Tile span</span><b>${(2*half).toFixed(0)} m &times; ${(2*half).toFixed(0)} m</b>`; }
+
+// ---- UI refs ----
+const exag=document.getElementById('exag'), sun_=document.getElementById('sun'),
+  contours=document.getElementById('contours'), ci=document.getElementById('ci'),
+  outline=document.getElementById('outline'), labels=document.getElementById('labels'), wire=document.getElementById('wire');
+
+const tabs=document.getElementById('tabs');
+Object.keys(window.TERRAIN).forEach((k,i)=>{ const el=document.createElement('div');
+  el.className='tab'+(i===0?' active':''); el.textContent=window.TERRAIN[k].town.split(',')[0];
+  el.onclick=()=>{ [...tabs.children].forEach(c=>c.classList.remove('active')); el.classList.add('active'); build(k); };
+  tabs.appendChild(el); });
+
+exag.oninput=()=>{ document.getElementById('exagVal').innerHTML=parseFloat(exag.value).toFixed(1)+'&times;'; build(currentKey()); };
+sun_.oninput=()=>{ document.getElementById('sunVal').innerHTML=sun_.value+'&deg;'; updateSun(); };
+contours.onchange=()=>{ if(uniforms) uniforms.uContourOn.value=contours.checked?1:0; };
+ci.oninput=()=>{ const v=CI_STEPS[+ci.value]; document.getElementById('ciVal').textContent=v+' m'; if(uniforms) uniforms.uInterval.value=v; };
+outline.onchange=applyToggles; labels.onchange=applyToggles;
+wire.onchange=()=>{ const m=group&&group.children[0]; if(m) m.material.wireframe=wire.checked; };
+function currentKey(){ return Object.keys(window.TERRAIN)[[...tabs.children].findIndex(c=>c.classList.contains('active'))]; }
+
+// ---- hover: lat/long/elevation readout ----
+const ray=new THREE.Raycaster(), ptr=new THREE.Vector2(), hoverEl=document.getElementById('hover');
+renderer.domElement.addEventListener('pointermove',(e)=>{
+  ptr.x=(e.clientX/innerWidth)*2-1; ptr.y=-(e.clientY/innerHeight)*2+1;
+  ray.setFromCamera(ptr,camera); const m=group&&group.children[0];
+  const hit=m?ray.intersectObject(m,false):[];
+  if(hit.length){ const p=hit[0].point; const [lo,la]=lonlat(p.x,p.z); const el=sampleH(p.x,p.z)+zmin;
+    hoverEl.style.display='block'; hoverEl.style.left=(e.clientX+14)+'px'; hoverEl.style.top=(e.clientY+14)+'px';
+    hoverEl.innerHTML=`<span class="g">${fmtLat(la)}</span><br><span class="g">${fmtLon(lo)}</span><br>elev <b>${el.toFixed(1)} m</b> (${(el*3.281).toFixed(0)} ft)`; }
+  else hoverEl.style.display='none'; });
+renderer.domElement.addEventListener('pointerleave',()=>hoverEl.style.display='none');
+
+// ---- explanatory tooltips ----
+const tip=document.getElementById('tip'); let tipTgt=null;
+document.addEventListener('pointerover',e=>{ const t=e.target.closest('[data-tip]'); if(t){ tipTgt=t; tip.textContent=t.getAttribute('data-tip'); tip.style.display='block'; } });
+document.addEventListener('pointermove',e=>{ if(tip.style.display==='block'){ let x=e.clientX+14,y=e.clientY+14;
+  if(x+tip.offsetWidth>innerWidth) x=e.clientX-tip.offsetWidth-14; tip.style.left=x+'px'; tip.style.top=y+'px'; } });
+document.addEventListener('pointerout',e=>{ if(e.target.closest('[data-tip]')===tipTgt){ tip.style.display='none'; tipTgt=null; } });
+
+addEventListener('resize',()=>{ camera.aspect=innerWidth/innerHeight; camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth,innerHeight); const l=group&&group.getObjectByName('outline'); if(l) l.material.resolution.set(innerWidth,innerHeight); });
+
+function animate(){ requestAnimationFrame(animate); controls.update(); renderer.render(scene,camera); }
+build(Object.keys(window.TERRAIN)[0]); animate();
+</script>
+</body>
+</html>
