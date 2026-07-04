@@ -55,9 +55,16 @@ polygons, base64-packed). `index.html` is a self-contained three.js viewer.
 - **Elevation profile** — click two points; the cross-section samples the 1 m grid every
   ~0.4% of the line and reports length, high/low, climb and descent.
 - **Adjoining owners** — parcels intersecting the property boundary, from the same assessor
-  services (owner of record, site address, acreage — all public record). Drawn as dashed
-  boundary lines with labels. Parcels with no owner in the assessor record show "unknown"
-  (often road or utility strips).
+  services (owner of record, site address, acreage — all public record), drawn as a
+  color-coded plat mosaic with matching labels and list swatches. Assessor-layer duplicates
+  of the subject parcel are filtered; unattributed neighbors are labeled "no owner on
+  public roll."
+- **Soils** — USDA SSURGO map units intersecting the parcel (Soil Data Access spatial SQL),
+  draped in color with series name, natural drainage class, and the USDA septic-field
+  interpretation for the dominant component. Map-unit level, not site-specific.
+- **Flood zone** — FEMA National Flood Hazard Layer zone at the parcel center.
+- **Wetlands** — USFWS National Wetlands Inventory presence within ~250 m.
+- **Geology** — Macrostrat map units at the parcel center (surface unit + bedrock, with ages).
 
 ## Caveats & confidence
 
