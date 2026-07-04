@@ -81,6 +81,13 @@ polygons, base64-packed). `index.html` is a self-contained three.js viewer.
 - **Seasons** — purely visual simulation: fall foliage palette in ~8 m crown patches,
   winter snow (ground, roofs, frost-gray canopy) and cold light, spring leaf-out. No
   measurement changes; if "real sun" is on, the month follows the season.
+- **Roof imagery** — the real aerial/satellite photo is projected straight down onto each
+  roof, so roofs show their actual appearance from above (swapped for snow in winter).
+- **Wildlife** — species recorded within ~3 km in [GBIF](https://www.gbif.org) (mostly eBird
+  + iNaturalist), grouped into birds/mammals/amphibians/reptiles with observation counts,
+  species richness and the most-reported species. Citizen-science sampling over-records birds
+  and under-records mammals/reptiles — low counts mean under-observed, not absent. This is the
+  neighborhood's fauna, not a parcel survey.
 - **Cornwall's house appears in FEMA's data as two separate footprints** 5.4 m apart. The
   LiDAR shows 4–12 m returns over the gap — tree canopy arching over the middle of the
   house — so FEMA's imagery-based extraction couldn't see the connecting section. The

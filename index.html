@@ -37,6 +37,11 @@
   .toggle span { cursor:help; border-bottom:1px dotted #4c545c; }
   .toggle input { accent-color:var(--accent); width:15px; height:15px; }
   .divider { height:1px; background:var(--line); margin:12px 0; }
+  .wsec { margin:14px 0 6px; font-size:11px; text-transform:uppercase; letter-spacing:.05em; color:var(--mut); }
+  .wsec span { cursor:help; border-bottom:1px dotted #4c545c; }
+  #wildlife .wg { font-size:11.5px; line-height:1.5; margin-bottom:7px; }
+  #wildlife .wg b { color:var(--txt); }
+  #wildlife .wg .sp { color:var(--mut); }
   #coords { bottom:14px; left:14px; width:294px; font-size:11px; line-height:1.7; }
   #coords h2 { font-size:11px; text-transform:uppercase; letter-spacing:.06em; color:var(--mut); margin:0 0 8px; font-weight:600; }
   #coords .cgrid { display:grid; grid-template-columns:auto 1fr; gap:2px 10px; }
@@ -150,6 +155,9 @@
   <div class="tabs views">
     <div class="tab vbtn" id="profileBtn" data-tip="Click this, then click two spots on the terrain: you get the ground cross-section along that line &mdash; total distance, high and low elevation, climb and descent, with a chart. Click again to clear.">&#9968; Elevation profile</div>
   </div>
+
+  <div class="wsec"><span data-tip="Species recorded near this property in GBIF &mdash; the global biodiversity database, here mostly eBird and iNaturalist citizen-science sightings within ~3 km. Counts are observations, not individuals. Birds are heavily over-recorded and mammals/reptiles under-recorded (nocturnal, secretive), so read low counts as 'under-observed', not 'absent'. This is the neighborhood's fauna, not a parcel survey.">Wildlife recorded within ~3&#8202;km</span></div>
+  <div id="wildlife"></div>
   </div>
 </div>
 
@@ -448,15 +456,20 @@ function build(key){
       const P=(u,v,y)=>[cx0+u*ca-v*sa, y, cz0+u*sa+v*ca];
       const A=P(x0,z0,baseY+eave), B=P(x1,z0,baseY+eave), C=P(x1,z1,baseY+eave), E=P(x0,z1,baseY+eave);
       const R0=P(x0,zm,baseY+ridge), R1=P(x1,zm,baseY+ridge);
-      const rc=b.roof_rgb?b.roof_rgb.map(v=>Math.min(255,Math.round(v*1.5))):[150,110,95];
-      const roofMat=new THREE.MeshStandardMaterial({color:new THREE.Color(`rgb(${rc[0]},${rc[1]},${rc[2]})`),roughness:0.92,metalness:0,side:THREE.DoubleSide});
-      roofMat.userData.base=roofMat.color.clone(); roofMats.push(roofMat);
-      const rg=new THREE.BufferGeometry();
-      rg.setAttribute('position',new THREE.Float32BufferAttribute([
+      const roofTex=aerialTex(currentKey(),D.aerial_b64);
+      const roofMat=new THREE.MeshStandardMaterial({map:roofTex,color:0xffffff,roughness:0.9,metalness:0,side:THREE.DoubleSide});
+      roofMat.userData.tex=roofTex; roofMat.userData.base=new THREE.Color(0xffffff); roofMats.push(roofMat);
+      const verts=[
         ...A,...B,...R1, ...A,...R1,...R0,          // south slope
         ...C,...E,...R0, ...C,...R0,...R1,          // north slope
         ...A,...R0,...E,  ...B,...C,...R1,          // gable ends
-      ],3));
+      ];
+      const rg=new THREE.BufferGeometry();
+      rg.setAttribute('position',new THREE.Float32BufferAttribute(verts,3));
+      // project the real aerial photo straight down onto the roof (satellite look)
+      const uvR=[]; for(let vi=0;vi<verts.length;vi+=3){
+        uvR.push((verts[vi]+half)/(2*half), (verts[vi+2]+half)/(2*half)); }
+      rg.setAttribute('uv',new THREE.Float32BufferAttribute(uvR,2));
       rg.computeVertexNormals();
       const roof=new THREE.Mesh(rg,roofMat); roof.castShadow=true; roof.receiveShadow=true;
       bgroup.add(roof);
@@ -606,7 +619,7 @@ function build(key){
   controls.maxDistance=half*7;
   controls.update();
   document.querySelectorAll('.vbtn[data-view]').forEach(x=>x.classList.toggle('active',x.dataset.view==='oblique'));
-  updateSun(); fillFacts(); fillCoords();
+  updateSun(); fillFacts(); fillCoords(); fillWildlife();
 }
 
 function applyToggles(){ if(!group) return;
@@ -674,6 +687,15 @@ function fillFacts(){ document.getElementById('facts').innerHTML=
   (D.built?`<div><span class="k" data-tip="Construction record from the ${D.built.src}${D.built.sale?'; '+D.built.sale:''}. Assessor records are the authoritative public source for year built, style and areas.">Built</span><b>${D.built.year}</b> <span style="color:var(--mut)">${D.built.style} &middot; ${D.built.stories} stories &middot; ${D.built.living_sqft.toLocaleString()} sq ft living${D.built.beds?` &middot; ${D.built.beds} bd / ${D.built.baths} ba`:''}${D.built.gross_sqft?` &middot; ${D.built.gross_sqft.toLocaleString()} gross`:''}</span></div>`:'')+
   (D.built&&D.built.heat?`<div><span class="k" data-tip="Building systems from the assessor record: heating type and fuel, utilities, water supply and sewer.">Systems</span><b>${D.built.heat}</b> <span style="color:var(--mut)">&middot; ${D.built.utilities} &middot; ${D.built.water} &middot; ${D.built.sewer}</span></div>`:''); }
 
+const WICON={Birds:'🐦',Mammals:'🦌',Amphibians:'🐸',Reptiles:'🦎'};
+function fillWildlife(){ const el=document.getElementById('wildlife');
+  const w=D.wildlife; if(!w){ el.innerHTML=''; return; }
+  el.innerHTML=w.groups.map(g=>{
+    if(!g.obs) return `<div class="wg">${WICON[g.label]||''} <b>${g.label}</b> <span class="sp">— under-recorded (0 sightings)</span></div>`;
+    const tops=g.top.slice(0,4).map(t=>t.name).join(', ');
+    return `<div class="wg">${WICON[g.label]||''} <b>${g.label}</b>: ${g.species}${g.capped?'+':''} species, ${g.obs.toLocaleString()} sightings<br><span class="sp">${tops}</span></div>`;
+  }).join('');
+}
 function fillCoords(){ const c=D.corners, ctr=D.center_lonlat;
   const nLat=(c.nw[1]+c.ne[1])/2, sLat=(c.sw[1]+c.se[1])/2, eLon=(c.ne[0]+c.se[0])/2, wLon=(c.nw[0]+c.sw[0])/2;
   document.getElementById('cgrid').innerHTML=
@@ -743,7 +765,8 @@ function applySeason(){
       m.color.set(season==='winter'?0xd9e2ea:season==='spring'?0x93c073:0x2f7d32);
       m.opacity=season==='winter'?0.5:0.62; }
     m.needsUpdate=true; }
-  roofMats.forEach(m=>{ if(season==='winter') m.color.set(0xe9edf2); else m.color.copy(m.userData.base); });
+  roofMats.forEach(m=>{ if(season==='winter'){ m.map=null; m.color.set(0xe9edf2); }
+    else { m.map=m.userData.tex||null; m.color.set(0xffffff); } m.needsUpdate=true; });
   if(surfMode==='elev'&&terrainGeo&&colorSets){
     terrainGeo.attributes.color.array.set(season==='winter'?colorSets.snow:colorSets.elev);
     terrainGeo.attributes.color.needsUpdate=true; }
