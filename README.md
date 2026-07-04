@@ -84,6 +84,8 @@ polygons, base64-packed). `index.html` is a self-contained three.js viewer.
 - **House materials** — wall and roof colors are set from ground truth: Aquinnah from an
   owner photo (weathered gray cedar shingle, ~#a39a90 walls); Cornwall from the real-estate
   listing + aerial (1975 natural-wood contemporary with a dark roof). Snow-swapped in winter.
+- **Decks** — the Aquinnah house's large west-side deck (raised wood platform, fascia and
+  railing) is placed from the owner's aerial/photo. Approximate footprint, not a survey.
 - **Wildlife** — species recorded within ~3 km in [GBIF](https://www.gbif.org) (mostly eBird
   + iNaturalist), grouped into birds/mammals/amphibians/reptiles with observation counts,
   species richness and the most-reported species. Citizen-science sampling over-records birds

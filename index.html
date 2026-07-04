@@ -267,6 +267,8 @@ const compass8=az=>['N','NE','E','SE','S','SW','W','NW'][Math.round(az/45)%8];
 // Cornwall = natural wood contemporary with a dark roof (listing + aerial).
 const MAT={ aquinnah:{wall:0xa39a90, roof:0x8f867a, trim:0x39332c},
             cornwall:{wall:0x6f5c47, roof:0x453f39, trim:0x2a2622} };
+// decks/patios (mesh xz polygon + floor-reference point), from aerial + owner note
+const DECKS={ aquinnah:[ {poly:[[-27,18],[-12,19],[-11,35],[-26,35]], ref:[-8,26], rail:true} ] };
 
 function decode(b64){ const bin=atob(b64); const u8=new Uint8Array(bin.length);
   for(let i=0;i<bin.length;i++) u8[i]=bin.charCodeAt(i); return new Float32Array(u8.buffer); }
@@ -490,6 +492,35 @@ function build(key){
       bgroup.add(roof);
     }
   }
+  // ---- decks / patios: raised wood platform + fascia skirt + railing ----
+  const deckMat=new THREE.MeshStandardMaterial({color:0x9a7f57,roughness:0.95,metalness:0,side:THREE.DoubleSide});
+  const railMat=new THREE.MeshStandardMaterial({color:0x866a45,roughness:0.95,metalness:0});
+  for(const dk of (DECKS[key]||[])){
+    const deckY=sampleH(dk.ref[0],dk.ref[1])*ex-0.3;   // ~main-floor level
+    const shp=new THREE.Shape();
+    dk.poly.forEach(([x,z],i)=> i?shp.lineTo(x,-z):shp.moveTo(x,-z));
+    const top=new THREE.Mesh(new THREE.ShapeGeometry(shp),deckMat);
+    top.geometry.rotateX(-Math.PI/2); top.position.y=deckY; top.receiveShadow=true; bgroup.add(top);
+    // fascia skirt down to terrain + railing loop
+    const sv=[], rv=[]; const P=dk.poly, n=P.length;
+    for(let i=0;i<n;i++){ const [x0,z0]=P[i],[x1,z1]=P[(i+1)%n];
+      const g0=sampleH(x0,z0)*ex-1.5, g1=sampleH(x1,z1)*ex-1.5;
+      sv.push(x0,deckY,z0, x1,deckY,z1, x1,g1,z1,  x0,deckY,z0, x1,g1,z1, x0,g0,z0);
+    }
+    const sg=new THREE.BufferGeometry(); sg.setAttribute('position',new THREE.Float32BufferAttribute(sv,3)); sg.computeVertexNormals();
+    const skirt=new THREE.Mesh(sg,deckMat); skirt.castShadow=true; skirt.receiveShadow=true; bgroup.add(skirt);
+    if(dk.rail){
+      // top rail as thin boxes along each edge, plus corner posts
+      for(let i=0;i<n;i++){ const [x0,z0]=P[i],[x1,z1]=P[(i+1)%n];
+        const mx=(x0+x1)/2, mz=(z0+z1)/2, len=Math.hypot(x1-x0,z1-z0), ang=Math.atan2(z1-z0,x1-x0);
+        const rail=new THREE.Mesh(new THREE.BoxGeometry(len,0.12,0.12),railMat);
+        rail.position.set(mx,deckY+1.0,mz); rail.rotation.y=-ang; bgroup.add(rail);
+        const post=new THREE.Mesh(new THREE.BoxGeometry(0.16,1.0,0.16),railMat);
+        post.position.set(x0,deckY+0.5,z0); bgroup.add(post);
+      }
+    }
+  }
+
   group.add(bgroup);
 
   // ---- tree canopy overlay (green where woods, clipped to parcel) ----
