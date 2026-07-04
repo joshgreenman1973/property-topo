@@ -263,6 +263,10 @@ function slopeColor(s){ const t=Math.min(s/45,1);
     if(t<=b){ const f=(t-a)/(b-a); return [ca[0]+(cb[0]-ca[0])*f,ca[1]+(cb[1]-ca[1])*f,ca[2]+(cb[2]-ca[2])*f].map(v=>v/255); } }
   return [1,0,0]; }
 const compass8=az=>['N','NE','E','SE','S','SW','W','NW'][Math.round(az/45)%8];
+// house materials from ground truth: Aquinnah = weathered gray cedar shingle (owner photo);
+// Cornwall = natural wood contemporary with a dark roof (listing + aerial).
+const MAT={ aquinnah:{wall:0xa39a90, roof:0x8f867a, trim:0x39332c},
+            cornwall:{wall:0x6f5c47, roof:0x453f39, trim:0x2a2622} };
 
 function decode(b64){ const bin=atob(b64); const u8=new Uint8Array(bin.length);
   for(let i=0;i<bin.length;i++) u8[i]=bin.charCodeAt(i); return new Float32Array(u8.buffer); }
@@ -425,8 +429,9 @@ function build(key){
 
   // ---- buildings: true footprints, walls to the LiDAR eave, gabled roof to the ridge ----
   const bgroup=new THREE.Group(); bgroup.name='buildings';
-  const wallMat=new THREE.MeshStandardMaterial({color:0xe8e2d4,roughness:0.85,metalness:0});
-  const edgeMat=new THREE.LineBasicMaterial({color:0x3a352c});
+  const mc=MAT[key]||{wall:0xe8e2d4,roof:0x7a5240,trim:0x3a352c};
+  const wallMat=new THREE.MeshStandardMaterial({color:mc.wall,roughness:0.88,metalness:0});
+  const edgeMat=new THREE.LineBasicMaterial({color:mc.trim});
   roofMats=[];
   const found=2;
   for(const b of (D.buildings||[])){
@@ -438,7 +443,7 @@ function build(key){
       const cyl=new THREE.Mesh(new THREE.CylinderGeometry(R,R,wallH+found,32),wallMat);
       cyl.position.set(cx, gy*ex-found+(wallH+found)/2, cz);
       cyl.castShadow=true; cyl.receiveShadow=true; bgroup.add(cyl);
-      const coneMat=new THREE.MeshStandardMaterial({color:0x7a5240,roughness:0.9,metalness:0});
+      const coneMat=new THREE.MeshStandardMaterial({color:mc.roof,roughness:0.9,metalness:0});
       coneMat.userData.base=coneMat.color.clone(); roofMats.push(coneMat);
       const cone=new THREE.Mesh(new THREE.ConeGeometry(R+0.35, ht*0.34, 32),coneMat);
       cone.position.set(cx, gy*ex+wallH+ht*0.34/2, cz);
@@ -471,9 +476,8 @@ function build(key){
       const P=(u,v,y)=>[cx0+u*ca-v*sa, y, cz0+u*sa+v*ca];
       const A=P(x0,z0,baseY+eave), B=P(x1,z0,baseY+eave), C=P(x1,z1,baseY+eave), E=P(x0,z1,baseY+eave);
       const R0=P(x0,zm,baseY+ridge), R1=P(x1,zm,baseY+ridge);
-      const roofTex=aerialTex(currentKey(),D.aerial_b64);
-      const roofMat=new THREE.MeshStandardMaterial({map:roofTex,color:0xffffff,roughness:0.9,metalness:0,side:THREE.DoubleSide});
-      roofMat.userData.tex=roofTex; roofMat.userData.base=new THREE.Color(0xffffff); roofMats.push(roofMat);
+      const roofMat=new THREE.MeshStandardMaterial({color:mc.roof,roughness:0.92,metalness:0,side:THREE.DoubleSide});
+      roofMat.userData.base=new THREE.Color(mc.roof); roofMats.push(roofMat);
       const verts=[
         ...A,...B,...R1, ...A,...R1,...R0,          // south slope
         ...C,...E,...R0, ...C,...R0,...R1,          // north slope
@@ -481,10 +485,6 @@ function build(key){
       ];
       const rg=new THREE.BufferGeometry();
       rg.setAttribute('position',new THREE.Float32BufferAttribute(verts,3));
-      // project the real aerial photo straight down onto the roof (satellite look)
-      const uvR=[]; for(let vi=0;vi<verts.length;vi+=3){
-        uvR.push((verts[vi]+half)/(2*half), (verts[vi+2]+half)/(2*half)); }
-      rg.setAttribute('uv',new THREE.Float32BufferAttribute(uvR,2));
       rg.computeVertexNormals();
       const roof=new THREE.Mesh(rg,roofMat); roof.castShadow=true; roof.receiveShadow=true;
       bgroup.add(roof);
