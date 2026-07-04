@@ -117,7 +117,7 @@
   <div class="row" style="margin-top:6px"><label data-tip="Vertical spacing between contour lines, in meters of elevation. Smaller intervals show more detail but crowd together on steep slopes.">Contour interval</label><span class="val" id="ciVal">2 m</span></div>
   <input type="range" id="ci" min="0" max="4" step="1" value="1">
   <label class="toggle"><input type="checkbox" id="outline" checked><span data-tip="The gold line is the legal property boundary from the official assessor's parcel map, draped onto the 3D surface at its true elevation.">Parcel boundary</span></label>
-  <label class="toggle"><input type="checkbox" id="buildings" checked><span data-tip="Real building footprints (FEMA USA Structures / assessor), placed at their true location and extruded to their measured height. Roof heights are LiDAR-derived where available, otherwise estimated from the assessor's story count. Where FEMA splits one house into separate roof sections (its imagery can't see a middle section hidden under tree canopy &mdash; the Cornwall house reads as two), nearby sections are counted as one building and joined by an inferred connector. Roof shape: walls rise to the eave and a gabled roof to the ridge. Aquinnah's eave (5.8 m) and ridge (8.3 m) are measured from building-classified LiDAR returns; Cornwall's roof is under tree canopy, so its form is estimated from the FEMA height. Roof color is sampled from the aerial photo. True scale &mdash; never vertically exaggerated.">Buildings</span></label>
+  <label class="toggle"><input type="checkbox" id="buildings" checked><span data-tip="Real building footprints (FEMA USA Structures / assessor), placed at their true location and extruded to their measured height. Roof heights are LiDAR-derived where available, otherwise estimated from the assessor's story count. Where FEMA splits one house into separate roof sections (its imagery can't see a middle section hidden under tree canopy &mdash; the Cornwall house reads as two), nearby sections are counted as one building and joined by an inferred connector &mdash; at Cornwall a cylindrical rotunda per the owner. Roof shape: walls rise to the eave and a gabled roof to the ridge. Aquinnah's eave (5.8 m) and ridge (8.3 m) are measured from building-classified LiDAR returns; Cornwall's roof is under tree canopy, so its form is estimated from the FEMA height. Roof color is sampled from the aerial photo. True scale &mdash; never vertically exaggerated.">Buildings</span></label>
   <label class="toggle"><input type="checkbox" id="roads" checked><span data-tip="Roads and driveways from OpenStreetMap, draped onto the terrain with approximate widths by road type (highway, residential street, driveway). Floating labels mark the named roads.">Roads</span></label>
   <div class="row" style="margin-top:12px"><label data-tip="Simulates the look of each season: summer greens, fall foliage colors, winter snow cover with snow-laden canopy and roofs, spring early leaf-out. Purely visual (colors and light) &mdash; the underlying measurements never change. If 'Real sun' is on, the month jumps to match the season.">Season</label></div>
   <div class="tabs views">
@@ -430,7 +430,22 @@ function build(key){
   roofMats=[];
   const found=2;
   for(const b of (D.buildings||[])){
-    const ring=b.mesh; let gmin=Infinity;
+    const ring=b.mesh;
+    // cylindrical connector (a round link/rotunda) between the two wings — per owner
+    if(b.occ==='connector'){
+      let cx=0,cz=0; for(const [x,z] of ring){ cx+=x; cz+=z; } cx/=ring.length; cz/=ring.length;
+      const gy=sampleH(cx,cz), ht=b.height, R=2.8, wallH=ht*0.88;
+      const cyl=new THREE.Mesh(new THREE.CylinderGeometry(R,R,wallH+found,32),wallMat);
+      cyl.position.set(cx, gy*ex-found+(wallH+found)/2, cz);
+      cyl.castShadow=true; cyl.receiveShadow=true; bgroup.add(cyl);
+      const coneMat=new THREE.MeshStandardMaterial({color:0x7a5240,roughness:0.9,metalness:0});
+      coneMat.userData.base=coneMat.color.clone(); roofMats.push(coneMat);
+      const cone=new THREE.Mesh(new THREE.ConeGeometry(R+0.35, ht*0.34, 32),coneMat);
+      cone.position.set(cx, gy*ex+wallH+ht*0.34/2, cz);
+      cone.castShadow=true; bgroup.add(cone);
+      continue;
+    }
+    let gmin=Infinity;
     for(const [x,z] of ring){ const g=sampleH(x,z); if(g<gmin) gmin=g; }
     const baseY=gmin*ex;
     const eave=b.eave||b.height, ridge=b.ridge||b.height;
@@ -766,7 +781,7 @@ function applySeason(){
       m.opacity=season==='winter'?0.5:0.62; }
     m.needsUpdate=true; }
   roofMats.forEach(m=>{ if(season==='winter'){ m.map=null; m.color.set(0xe9edf2); }
-    else { m.map=m.userData.tex||null; m.color.set(0xffffff); } m.needsUpdate=true; });
+    else { m.map=m.userData.tex||null; m.color.copy(m.userData.base||new THREE.Color(0xffffff)); } m.needsUpdate=true; });
   if(surfMode==='elev'&&terrainGeo&&colorSets){
     terrainGeo.attributes.color.array.set(season==='winter'?colorSets.snow:colorSets.elev);
     terrainGeo.attributes.color.needsUpdate=true; }

@@ -94,7 +94,9 @@ polygons, base64-packed). `index.html` is a self-contained three.js viewer.
   assessor records one dwelling (3,518 sq ft living ≈ the two footprints × 2 stories) and
   the owner confirms one building, so footprints within 8 m are clustered as one building
   and joined by an **inferred connector** (5 m wide, at the lower wing's height). The
-  connector's exact shape is not measured — it is marked as inferred in the data.
+  connector's exact shape is not measured — it is marked as inferred in the data. Its form
+  (a cylindrical rotunda with a conical roof linking the two rectangular wings) is set from
+  the owner's first-hand description.
 - **Acreage** shown is computed from the polygon (shoelace on UTM coordinates); the
   assessor's stated acreage is shown alongside for comparison. Small differences are normal
   (survey vs. GIS digitizing).
