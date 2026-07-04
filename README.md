@@ -62,6 +62,9 @@ polygons, base64-packed). `index.html` is a self-contained three.js viewer.
 - **Soils** — USDA SSURGO map units intersecting the parcel (Soil Data Access spatial SQL),
   draped in color with series name, natural drainage class, and the USDA septic-field
   interpretation for the dominant component. Map-unit level, not site-specific.
+- **Administrative geography** — census tract, county, and the local incorporated area
+  (Aquinnah *town*; Cornwall-on-Hudson *village* — the closest equivalent to an NYC NTA for
+  places this size) from the US Census Bureau geocoder, shown in the coordinates panel.
 - **Flood zone** — FEMA National Flood Hazard Layer zone at the parcel center.
 - **Wetlands** — USFWS National Wetlands Inventory presence within ~250 m.
 - **Geology** — Macrostrat map units at the parcel center (surface unit + bedrock, with ages).

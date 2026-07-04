@@ -200,7 +200,7 @@
 </div>
 <div id="hint">drag&nbsp;·&nbsp;orbit&nbsp;&nbsp;·&nbsp;&nbsp;scroll&nbsp;·&nbsp;zoom&nbsp;&nbsp;·&nbsp;&nbsp;double-click&nbsp;·&nbsp;fly in&nbsp;&nbsp;·&nbsp;&nbsp;right-drag&nbsp;·&nbsp;pan&nbsp;&nbsp;·&nbsp;&nbsp;hover for lat/long</div>
 
-<script src="terrain_data.js"></script>
+<script src="terrain_data.js?v=20260704a"></script>
 <script type="importmap">
 { "imports": {
   "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
@@ -764,7 +764,12 @@ function fillWildlife(){ const el=document.getElementById('wildlife');
 }
 function fillCoords(){ const c=D.corners, ctr=D.center_lonlat;
   const nLat=(c.nw[1]+c.ne[1])/2, sLat=(c.sw[1]+c.se[1])/2, eLon=(c.ne[0]+c.se[0])/2, wLon=(c.nw[0]+c.sw[0])/2;
-  document.getElementById('cgrid').innerHTML=
+  const a=D.admin, strip=s=>(s||'').replace(/\s+(town|village|city|CDP)$/i,'');
+  const adminRows=a?(
+    `<span class="lbl" data-tip="The local incorporated area the property sits in — the closest equivalent to a New York City NTA/neighborhood for a place this size. From the US Census Bureau.">${a.area_label}</span><b>${strip(a.area)}</b>`+
+    `<span class="lbl" data-tip="County (the top-level local jurisdiction). US Census Bureau.">County</span><b>${a.county}</b>`+
+    `<span class="lbl" data-tip="US Census Bureau statistical tract — the small area used for demographic data (a few thousand residents). Block group ${a.block_group||'?'} within it.">Census tract</span><b>${(a.tract||'').replace('Census Tract ','No. ')}</b>`):'';
+  document.getElementById('cgrid').innerHTML= adminRows+
     `<span class="lbl" data-tip="Latitude / longitude of the center of the view, in decimal degrees (WGS84).">Center</span><b>${fmtLat(ctr[1])}, ${fmtLon(ctr[0])}</b>`+
     `<span class="lbl" data-tip="Latitude of the northern edge of the terrain tile.">North edge</span><b>${fmtLat(nLat)}</b>`+
     `<span class="lbl" data-tip="Latitude of the southern edge of the terrain tile.">South edge</span><b>${fmtLat(sLat)}</b>`+
