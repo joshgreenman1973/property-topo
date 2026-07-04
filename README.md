@@ -70,10 +70,17 @@ polygons, base64-packed). `index.html` is a self-contained three.js viewer.
 
 - **Elevation is bare-earth**, so buildings and tree canopy are removed from the ground
   surface. The buildings are added back separately as 3D blocks placed on that surface.
-- **Buildings are LOD1 blocks** — real footprint and location, extruded to a single flat-roof
-  height. Height is LiDAR-measured where FEMA provides it (Cornwall, ~7 m), otherwise
-  estimated from the assessor's story count (Aquinnah, 2.5 stories → ~8 m). Roof pitch and
-  architectural detail are not modeled.
+- **Buildings** — real footprint and location; walls rise to the eave and a gabled roof to
+  the ridge, oriented along the footprint's long axis. Aquinnah's eave (5.8 m) and ridge
+  (8.3 m) are measured from building-classified LiDAR returns (892 points); Cornwall's roof
+  returns are hidden under tree canopy, so its form is estimated from the FEMA height
+  (eave ≈ 70%, ridge = measured building height). Roof color is sampled from the aerial
+  photo. The gable is an idealization — real roofs may be hipped or more complex.
+- **Construction history** (facts panel) — year built, style, stories, areas, rooms and
+  systems from the town/county assessor records (Aquinnah FY2025; Orange County 2025 roll).
+- **Seasons** — purely visual simulation: fall foliage palette in ~8 m crown patches,
+  winter snow (ground, roofs, frost-gray canopy) and cold light, spring leaf-out. No
+  measurement changes; if "real sun" is on, the month follows the season.
 - **Cornwall's house appears in FEMA's data as two separate footprints** 5.4 m apart. The
   LiDAR shows 4–12 m returns over the gap — tree canopy arching over the middle of the
   house — so FEMA's imagery-based extraction couldn't see the connecting section. The

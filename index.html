@@ -112,8 +112,16 @@
   <div class="row" style="margin-top:6px"><label data-tip="Vertical spacing between contour lines, in meters of elevation. Smaller intervals show more detail but crowd together on steep slopes.">Contour interval</label><span class="val" id="ciVal">2 m</span></div>
   <input type="range" id="ci" min="0" max="4" step="1" value="1">
   <label class="toggle"><input type="checkbox" id="outline" checked><span data-tip="The gold line is the legal property boundary from the official assessor's parcel map, draped onto the 3D surface at its true elevation.">Parcel boundary</span></label>
-  <label class="toggle"><input type="checkbox" id="buildings" checked><span data-tip="Real building footprints (FEMA USA Structures / assessor), placed at their true location and extruded to their measured height. Roof heights are LiDAR-derived where available, otherwise estimated from the assessor's story count. Where FEMA splits one house into separate roof sections (its imagery can't see a middle section hidden under tree canopy &mdash; the Cornwall house reads as two), nearby sections are counted as one building and joined by an inferred connector. Blocks are simple flat-roof (LOD1) at true height &mdash; never vertically exaggerated.">Buildings</span></label>
+  <label class="toggle"><input type="checkbox" id="buildings" checked><span data-tip="Real building footprints (FEMA USA Structures / assessor), placed at their true location and extruded to their measured height. Roof heights are LiDAR-derived where available, otherwise estimated from the assessor's story count. Where FEMA splits one house into separate roof sections (its imagery can't see a middle section hidden under tree canopy &mdash; the Cornwall house reads as two), nearby sections are counted as one building and joined by an inferred connector. Roof shape: walls rise to the eave and a gabled roof to the ridge. Aquinnah's eave (5.8 m) and ridge (8.3 m) are measured from building-classified LiDAR returns; Cornwall's roof is under tree canopy, so its form is estimated from the FEMA height. Roof color is sampled from the aerial photo. True scale &mdash; never vertically exaggerated.">Buildings</span></label>
   <label class="toggle"><input type="checkbox" id="roads" checked><span data-tip="Roads and driveways from OpenStreetMap, draped onto the terrain with approximate widths by road type (highway, residential street, driveway). Floating labels mark the named roads.">Roads</span></label>
+  <div class="row" style="margin-top:12px"><label data-tip="Simulates the look of each season: summer greens, fall foliage colors, winter snow cover with snow-laden canopy and roofs, spring early leaf-out. Purely visual (colors and light) &mdash; the underlying measurements never change. If 'Real sun' is on, the month jumps to match the season.">Season</label></div>
+  <div class="tabs views">
+    <div class="tab szn active" data-szn="summer" data-tip="Full green canopy, warm light.">Summer</div>
+    <div class="tab szn" data-szn="fall" data-tip="Mixed oranges, reds and golds in the canopy; low warm light.">Fall</div>
+    <div class="tab szn" data-szn="winter" data-tip="Snow-covered ground and roofs, bare gray canopy, cold light.">Winter</div>
+    <div class="tab szn" data-szn="spring" data-tip="Fresh light-green leaf-out.">Spring</div>
+  </div>
+
   <div class="row" style="margin-top:12px"><label data-tip="What the terrain surface shows. Elevation: color by height (low green to high white). Photo: real aerial imagery draped on the 3D surface (note: off-season/leaf-off for Cornwall). Slope: how steep the ground is, green (flat) through yellow to red (45°+). Aspect: which compass direction each slope faces &mdash; blue N, green E, gold S, purple W &mdash; i.e. where the sun hits.">Surface</label></div>
   <div class="tabs surf">
     <div class="tab sbtn active" data-surf="elev" data-tip="Color by height above sea level: green (low) through tan and brown to white (high). The legend at bottom right shows the exact range.">Elev</div>
@@ -227,7 +235,7 @@ sun.shadow.bias = -0.0004;
 scene.add(sun); scene.add(sun.target);
 
 let group, uniforms, D, H, N, half, res, zmin, relief, outerRing, tMats=null, CH=null, canopyTyp=0;
-let colorSets=null, terrainGeo=null, surfMode='elev', parcelRelief=0;
+let colorSets=null, terrainGeo=null, surfMode='elev', parcelRelief=0, roofMats=[], season='summer';
 function slopeAspectAt(c,r){ // central differences on the height grid (true meters)
   const c0=Math.max(0,c-1), c1=Math.min(N-1,c+1), r0=Math.max(0,r-1), r1=Math.min(N-1,r+1);
   const gx=(H[r*N+c1]-H[r*N+c0])/((c1-c0)*res);
@@ -353,7 +361,9 @@ function build(key){
     colAspect[i*3]=ac[0]; colAspect[i*3+1]=ac[1]; colAspect[i*3+2]=ac[2];
     if(inPoly(x,z,outerRing)){ if(hz<pzmin)pzmin=hz; if(hz>pzmax)pzmax=hz; } }
   parcelRelief=pzmax-pzmin;
-  colorSets={elev:col, slope:colSlope, aspect:colAspect};
+  const snow=new Float32Array(col.length);
+  for(let i=0;i<col.length;i+=3){ snow[i]=col[i]*0.22+0.725; snow[i+1]=col[i+1]*0.22+0.74; snow[i+2]=col[i+2]*0.22+0.757; }
+  colorSets={elev:col.slice(0), slope:colSlope, aspect:colAspect, snow};  // elev copied: the live buffer gets overwritten by season swaps
   const idx=[];
   for(let r=0;r<N-1;r++)for(let c=0;c<N-1;c++){
     const a=r*N+c,b=r*N+c+1,d=(r+1)*N+c,e=(r+1)*N+c+1;
@@ -405,25 +415,52 @@ function build(key){
   lm.resolution.set(innerWidth,innerHeight);
   const line=new Line2(lg,lm); line.computeLineDistances(); line.name='outline'; group.add(line);
 
-  // ---- buildings: extrude real footprints onto the terrain ----
+  // ---- buildings: true footprints, walls to the LiDAR eave, gabled roof to the ridge ----
   const bgroup=new THREE.Group(); bgroup.name='buildings';
-  const wallMat=new THREE.MeshStandardMaterial({color:0xece6da,roughness:0.85,metalness:0});
-  const roofMat=new THREE.MeshStandardMaterial({color:0x8a4b3a,roughness:0.9,metalness:0});
-  const edgeMat=new THREE.LineBasicMaterial({color:0x3a2b23});
+  const wallMat=new THREE.MeshStandardMaterial({color:0xe8e2d4,roughness:0.85,metalness:0});
+  const edgeMat=new THREE.LineBasicMaterial({color:0x3a352c});
+  roofMats=[];
   const found=2;
   for(const b of (D.buildings||[])){
     const ring=b.mesh; let gmin=Infinity;
     for(const [x,z] of ring){ const g=sampleH(x,z); if(g<gmin) gmin=g; }
+    const baseY=gmin*ex;
+    const eave=b.eave||b.height, ridge=b.ridge||b.height;
+    // walls: true footprint extruded to the eave (true meters, never exaggerated)
     const shape=new THREE.Shape();
     ring.forEach(([x,z],i)=> i? shape.lineTo(x,-z): shape.moveTo(x,-z));
-    // buildings render at TRUE height (not exaggerated); only their base sits on the
-    // exaggerated terrain, so a 7 m house always looks 7 m regardless of the exag slider.
-    const geo=new THREE.ExtrudeGeometry(shape,{depth:b.height+found,bevelEnabled:false});
+    const geo=new THREE.ExtrudeGeometry(shape,{depth:eave+found,bevelEnabled:false});
     geo.rotateX(-Math.PI/2);
-    const bm=new THREE.Mesh(geo,[roofMat,wallMat]); bm.position.y=gmin*ex-found;
-    bm.castShadow=true; bm.receiveShadow=true;
-    bgroup.add(bm);
-    const eg=new THREE.LineSegments(new THREE.EdgesGeometry(geo,30),edgeMat); eg.position.copy(bm.position); bgroup.add(eg);
+    const bm=new THREE.Mesh(geo,wallMat); bm.position.y=baseY-found;
+    bm.castShadow=true; bm.receiveShadow=true; bgroup.add(bm);
+    const eg=new THREE.LineSegments(new THREE.EdgesGeometry(geo,30),edgeMat);
+    eg.position.copy(bm.position); bgroup.add(eg);
+    // roof: gable over the footprint's oriented bounding box along its long axis
+    if(b.occ!=='connector' && ridge>eave+0.3 && b.axis!==undefined){
+      const ca=Math.cos(b.axis), sa=Math.sin(b.axis);
+      let x0=Infinity,x1=-Infinity,z0=Infinity,z1=-Infinity, cx0=0,cz0=0;
+      for(const [x,z] of ring){ cx0+=x; cz0+=z; }
+      cx0/=ring.length; cz0/=ring.length;
+      for(const [x,z] of ring){ const u=(x-cx0)*ca+(z-cz0)*sa, v=-(x-cx0)*sa+(z-cz0)*ca;
+        x0=Math.min(x0,u); x1=Math.max(x1,u); z0=Math.min(z0,v); z1=Math.max(z1,v); }
+      const ov=0.4; x0-=ov; x1+=ov; z0-=ov; z1+=ov;
+      const zm=(z0+z1)/2;
+      const P=(u,v,y)=>[cx0+u*ca-v*sa, y, cz0+u*sa+v*ca];
+      const A=P(x0,z0,baseY+eave), B=P(x1,z0,baseY+eave), C=P(x1,z1,baseY+eave), E=P(x0,z1,baseY+eave);
+      const R0=P(x0,zm,baseY+ridge), R1=P(x1,zm,baseY+ridge);
+      const rc=b.roof_rgb?b.roof_rgb.map(v=>Math.min(255,Math.round(v*1.5))):[150,110,95];
+      const roofMat=new THREE.MeshStandardMaterial({color:new THREE.Color(`rgb(${rc[0]},${rc[1]},${rc[2]})`),roughness:0.92,metalness:0,side:THREE.DoubleSide});
+      roofMat.userData.base=roofMat.color.clone(); roofMats.push(roofMat);
+      const rg=new THREE.BufferGeometry();
+      rg.setAttribute('position',new THREE.Float32BufferAttribute([
+        ...A,...B,...R1, ...A,...R1,...R0,          // south slope
+        ...C,...E,...R0, ...C,...R0,...R1,          // north slope
+        ...A,...R0,...E,  ...B,...C,...R1,          // gable ends
+      ],3));
+      rg.computeVertexNormals();
+      const roof=new THREE.Mesh(rg,roofMat); roof.castShadow=true; roof.receiveShadow=true;
+      bgroup.add(roof);
+    }
   }
   group.add(bgroup);
 
@@ -443,6 +480,13 @@ function build(key){
     canopyTyp=chVals.length?chVals[Math.floor(chVals.length*0.5)]:0;
     const tg=new THREE.BufferGeometry();
     tg.setAttribute('position',new THREE.BufferAttribute(posT,3)); tg.setIndex(tIdx); tg.computeVertexNormals();
+    // fall-foliage vertex colors, in ~8 m crown-size patches
+    const FALL=[[201,111,47],[217,161,59],[165,70,46],[122,143,60],[196,90,40],[224,178,74]];
+    const colT=new Float32Array(N*N*3);
+    for(let i=0;i<N*N;i++){ const r=(i/N)|0, c=i%N;
+      const f=FALL[((((r>>3)*73856093)^((c>>3)*19349663))>>>0)%FALL.length];
+      colT[i*3]=f[0]/255; colT[i*3+1]=f[1]/255; colT[i*3+2]=f[2]/255; }
+    tg.setAttribute('color',new THREE.BufferAttribute(colT,3));
     const tmesh=new THREE.Mesh(tg,new THREE.MeshStandardMaterial({color:0x2f7d32,roughness:0.9,metalness:0,
       transparent:true,opacity:0.62,side:THREE.DoubleSide,depthWrite:false}));
     tmesh.name='trees'; tmesh.renderOrder=2; group.add(tmesh);
@@ -551,6 +595,7 @@ function build(key){
   clearProfile();
   applyToggles();
   updateLegend();
+  applySeason();
   // frame: bird's-eye 3/4 view that fits the whole tile
   const topH=relief*ex;
   const R=half*1.4;
@@ -625,7 +670,9 @@ function fillFacts(){ document.getElementById('facts').innerHTML=
   (canopyTyp?`<div><span class="k" data-tip="Median height of the tree canopy on the parcel, measured by the newest USGS LiDAR flight directly from the point cloud.">Tree canopy</span><b>~${canopyTyp.toFixed(0)} m</b> <span style="color:var(--mut)">median &middot; LiDAR ${D.canopy_yr||'2013-14'}</span></div>`:'')+
   (D.flood?`<div><span class="k" data-tip="FEMA National Flood Hazard Layer zone at the property center. Zone X means outside both the 1%-annual-chance (100-year) and 0.2% (500-year) flood areas &mdash; the lowest hazard class.">Flood zone</span><b>${D.flood}</b> <span style="color:var(--mut)">FEMA</span></div>`:'')+
   (D.wetlands?`<div><span class="k" data-tip="US Fish &amp; Wildlife Service National Wetlands Inventory, checked within ~250 m of the property center. NWI is mapped from imagery at survey scale; small seeps can exist unmapped.">Wetlands</span><b>${D.wetlands}</b> <span style="color:var(--mut)">USFWS NWI</span></div>`:'')+
-  ((D.geology||[]).length?`<div><span class="k" data-tip="Geologic map units at this point (Macrostrat compilation of state geological surveys), surface unit first, with age ranges in millions of years. Map-scale generalization &mdash; not a site boring.">Geology</span><b>${D.geology.map(g2=>g2.name).join(' over ')}</b> <span style="color:var(--mut)">${D.geology[D.geology.length-1].age}</span></div>`:''); }
+  ((D.geology||[]).length?`<div><span class="k" data-tip="Geologic map units at this point (Macrostrat compilation of state geological surveys), surface unit first, with age ranges in millions of years. Map-scale generalization &mdash; not a site boring.">Geology</span><b>${D.geology.map(g2=>g2.name).join(' over ')}</b> <span style="color:var(--mut)">${D.geology[D.geology.length-1].age}</span></div>`:'')+
+  (D.built?`<div><span class="k" data-tip="Construction record from the ${D.built.src}${D.built.sale?'; '+D.built.sale:''}. Assessor records are the authoritative public source for year built, style and areas.">Built</span><b>${D.built.year}</b> <span style="color:var(--mut)">${D.built.style} &middot; ${D.built.stories} stories &middot; ${D.built.living_sqft.toLocaleString()} sq ft living${D.built.beds?` &middot; ${D.built.beds} bd / ${D.built.baths} ba`:''}${D.built.gross_sqft?` &middot; ${D.built.gross_sqft.toLocaleString()} gross`:''}</span></div>`:'')+
+  (D.built&&D.built.heat?`<div><span class="k" data-tip="Building systems from the assessor record: heating type and fuel, utilities, water supply and sewer.">Systems</span><b>${D.built.heat}</b> <span style="color:var(--mut)">&middot; ${D.built.utilities} &middot; ${D.built.water} &middot; ${D.built.sewer}</span></div>`:''); }
 
 function fillCoords(){ const c=D.corners, ctr=D.center_lonlat;
   const nLat=(c.nw[1]+c.ne[1])/2, sLat=(c.sw[1]+c.se[1])/2, eLon=(c.ne[0]+c.se[0])/2, wLon=(c.nw[0]+c.sw[0])/2;
@@ -680,11 +727,31 @@ function setSurf(mode){
   if(mode==='aerial'){ m.material=tMats.aerial; }
   else {
     m.material=tMats.tint;
-    terrainGeo.attributes.color.array.set(colorSets[mode==='elev'?'elev':mode]);
+    terrainGeo.attributes.color.array.set(mode==='elev'?(season==='winter'?colorSets.snow:colorSets.elev):colorSets[mode]);
     terrainGeo.attributes.color.needsUpdate=true;
   }
   updateLegend();
 }
+
+// ---- seasons: colors + light; measurements untouched ----
+function applySeason(){
+  document.querySelectorAll('.szn').forEach(b=>b.classList.toggle('active',b.dataset.szn===season));
+  const t=group&&group.getObjectByName('trees');
+  if(t){ const m=t.material;
+    if(season==='fall'){ m.vertexColors=true; m.color.set(0xffffff); m.opacity=0.82; }
+    else { m.vertexColors=false;
+      m.color.set(season==='winter'?0xd9e2ea:season==='spring'?0x93c073:0x2f7d32);
+      m.opacity=season==='winter'?0.5:0.62; }
+    m.needsUpdate=true; }
+  roofMats.forEach(m=>{ if(season==='winter') m.color.set(0xe9edf2); else m.color.copy(m.userData.base); });
+  if(surfMode==='elev'&&terrainGeo&&colorSets){
+    terrainGeo.attributes.color.array.set(season==='winter'?colorSets.snow:colorSets.elev);
+    terrainGeo.attributes.color.needsUpdate=true; }
+  sun.color.set(season==='fall'?0xffdcb8:season==='winter'?0xe9f1ff:0xffffff);
+  hemi.color.set(season==='winter'?0xd8e4f5:0xbcd4ff);
+  if(realsun.checked){ mon.value={summer:7,fall:10,winter:1,spring:4}[season]; mon.dispatchEvent(new Event('input')); }
+}
+document.querySelectorAll('.szn').forEach(b=>b.onclick=()=>{ season=b.dataset.szn; applySeason(); });
 document.querySelectorAll('.sbtn').forEach(b=>b.onclick=()=>setSurf(b.dataset.surf));
 
 // ---- soils: USDA map units draped in color on the terrain ----
