@@ -14,7 +14,7 @@
   .caret { cursor:pointer; color:var(--mut); font-size:12px; user-select:none; padding:2px 4px; margin-left:auto; }
   .panel { position:absolute; background:var(--panel); backdrop-filter:blur(12px);
     border:1px solid var(--line); border-radius:12px; padding:14px 16px; }
-  #controls { top:14px; left:14px; width:294px; max-height:calc(100vh - 28px); overflow-y:auto; }
+  #controls { top:14px; left:14px; width:294px; max-height:calc(100vh - 250px); overflow-y:auto; }
   #controls h1 { font-size:14px; font-weight:600; margin:0 0 2px; }
   #controls .sub { font-size:11px; color:var(--mut); margin-bottom:12px; }
   .tabs { display:flex; gap:6px; margin-bottom:12px; }
@@ -52,6 +52,12 @@
     background:linear-gradient(90deg,#2f6b3f,#6a8f3c,#b8a56b,#96706c,#ecf0f3); }
   #legend .ends { display:flex; justify-content:space-between; }
   #compass { position:absolute; top:14px; right:14px; width:58px; height:58px; cursor:help; }
+  #zoomctl { position:absolute; right:16px; top:84px; display:flex; flex-direction:column; gap:6px; z-index:12; }
+  #zoomctl button { width:38px; height:38px; font-size:22px; line-height:1; color:var(--txt);
+    background:var(--panel); backdrop-filter:blur(12px); border:1px solid var(--line); border-radius:9px;
+    cursor:pointer; padding:0; display:flex; align-items:center; justify-content:center; }
+  #zoomctl button:hover { border-color:var(--accent); }
+  #wildlife a.src, #wildlife .src { display:inline-block; margin-top:2px; font-size:11px; }
   #profilePanel { position:absolute; left:50%; transform:translateX(-50%); bottom:56px; width:min(560px,calc(100vw - 24px));
     display:none; z-index:15; }
   #profilePanel h3 { margin:0 0 4px; font-size:12px; font-weight:600; display:flex; justify-content:space-between; }
@@ -84,6 +90,8 @@
     #coords.collapsed h2 { margin:0; }
     #legend { display:none; }
     #compass { width:48px; height:48px; top:auto; bottom:74px; right:12px; }
+    #zoomctl { display:none; }
+    #controls { max-height:calc(100vh - 20px); }
     #hint { display:none; }
     #tip { max-width:calc(100vw - 40px); }
   }
@@ -172,6 +180,10 @@
   <div class="ends"><span id="legLo">low</span><span id="legHi">high</span></div>
 </div>
 
+<div id="zoomctl">
+  <button id="zin" data-tip="Zoom in (or scroll toward the cursor).">+</button>
+  <button id="zout" data-tip="Zoom out.">&minus;</button>
+</div>
 <svg id="compass" viewBox="0 0 58 58" data-tip="Points to true north. The red arrow tracks the sun-direction control; the whole scene is oriented so north is toward the far edge.">
   <circle cx="29" cy="29" r="27" fill="#161b22e6" stroke="#30363d"/>
   <g id="needle"><polygon points="29,7 24.5,31 33.5,31" fill="#f85149"/><polygon points="29,51 24.5,31 33.5,31" fill="#8b949e"/></g>
@@ -268,7 +280,8 @@ const compass8=az=>['N','NE','E','SE','S','SW','W','NW'][Math.round(az/45)%8];
 const MAT={ aquinnah:{wall:0xa39a90, roof:0x8f867a, trim:0x39332c},
             cornwall:{wall:0x6f5c47, roof:0x453f39, trim:0x2a2622} };
 // decks/patios (mesh xz polygon + floor-reference point), from aerial + owner note
-const DECKS={ aquinnah:[ {poly:[[-27,18],[-12,19],[-11,35],[-26,35]], ref:[-8,26], rail:true} ] };
+// wraparound deck: expanded house footprint, widest on the SW (pool/patio) side
+const DECKS={ aquinnah:[ {poly:[[4.1,15.0],[8.8,32.4],[-15.8,42.9],[-21.5,21.6]], ref:[-2.9,24.9], rail:true, around:true} ] };
 
 function decode(b64){ const bin=atob(b64); const u8=new Uint8Array(bin.length);
   for(let i=0;i<bin.length;i++) u8[i]=bin.charCodeAt(i); return new Float32Array(u8.buffer); }
@@ -496,15 +509,18 @@ function build(key){
   const deckMat=new THREE.MeshStandardMaterial({color:0x9a7f57,roughness:0.95,metalness:0,side:THREE.DoubleSide});
   const railMat=new THREE.MeshStandardMaterial({color:0x866a45,roughness:0.95,metalness:0});
   for(const dk of (DECKS[key]||[])){
-    const deckY=sampleH(dk.ref[0],dk.ref[1])*ex-0.3;   // ~main-floor level
+    // deck sits just above the highest grade in its footprint -> a level platform
+    // above grade all around, raised on posts where the ground falls away.
+    let maxG=-Infinity; for(const [x,z] of dk.poly){ const g=sampleH(x,z); if(g>maxG) maxG=g; }
+    const deckY=maxG*ex+0.1;
     const shp=new THREE.Shape();
     dk.poly.forEach(([x,z],i)=> i?shp.lineTo(x,-z):shp.moveTo(x,-z));
     const top=new THREE.Mesh(new THREE.ShapeGeometry(shp),deckMat);
     top.geometry.rotateX(-Math.PI/2); top.position.y=deckY; top.receiveShadow=true; bgroup.add(top);
-    // fascia skirt down to terrain + railing loop
+    // fascia skirt down to grade + railing loop
     const sv=[], rv=[]; const P=dk.poly, n=P.length;
     for(let i=0;i<n;i++){ const [x0,z0]=P[i],[x1,z1]=P[(i+1)%n];
-      const g0=sampleH(x0,z0)*ex-1.5, g1=sampleH(x1,z1)*ex-1.5;
+      const g0=sampleH(x0,z0)*ex-0.3, g1=sampleH(x1,z1)*ex-0.3;
       sv.push(x0,deckY,z0, x1,deckY,z1, x1,g1,z1,  x0,deckY,z0, x1,g1,z1, x0,g0,z0);
     }
     const sg=new THREE.BufferGeometry(); sg.setAttribute('position',new THREE.Float32BufferAttribute(sv,3)); sg.computeVertexNormals();
@@ -736,11 +752,15 @@ function fillFacts(){ document.getElementById('facts').innerHTML=
 const WICON={Birds:'🐦',Mammals:'🦌',Amphibians:'🐸',Reptiles:'🦎'};
 function fillWildlife(){ const el=document.getElementById('wildlife');
   const w=D.wildlife; if(!w){ el.innerHTML=''; return; }
-  el.innerHTML=w.groups.map(g=>{
+  const rows=w.groups.map(g=>{
     if(!g.obs) return `<div class="wg">${WICON[g.label]||''} <b>${g.label}</b> <span class="sp">— under-recorded (0 sightings)</span></div>`;
-    const tops=g.top.slice(0,4).map(t=>t.name).join(', ');
+    const tops=g.top.slice(0,4).map(t=>t.name).join(', ')+(g.species>4?', …':'');
     return `<div class="wg">${WICON[g.label]||''} <b>${g.label}</b>: ${g.species}${g.capped?'+':''} species, ${g.obs.toLocaleString()} sightings<br><span class="sp">${tops}</span></div>`;
   }).join('');
+  const R=0.03, lo=D.center_lonlat[0], la=D.center_lonlat[1];
+  const wkt=`POLYGON((${lo-R} ${la-R},${lo+R} ${la-R},${lo+R} ${la+R},${lo-R} ${la+R},${lo-R} ${la-R}))`;
+  const url='https://www.gbif.org/occurrence/search?geometry='+encodeURIComponent(wkt);
+  el.innerHTML=rows+`<a class="src" href="${url}" target="_blank" rel="noopener">Source: GBIF records &#8599;</a>`;
 }
 function fillCoords(){ const c=D.corners, ctr=D.center_lonlat;
   const nLat=(c.nw[1]+c.ne[1])/2, sLat=(c.sw[1]+c.se[1])/2, eLon=(c.ne[0]+c.se[0])/2, wLon=(c.nw[0]+c.sw[0])/2;
@@ -822,6 +842,13 @@ function applySeason(){
 }
 document.querySelectorAll('.szn').forEach(b=>b.onclick=()=>{ season=b.dataset.szn; applySeason(); });
 document.querySelectorAll('.sbtn').forEach(b=>b.onclick=()=>setSurf(b.dataset.surf));
+
+// ---- +/- zoom buttons (dolly toward/away from the look-at point) ----
+function dolly(f){ tween=null; const off=camera.position.clone().sub(controls.target);
+  let d=Math.max(controls.minDistance, Math.min(controls.maxDistance, off.length()*f));
+  camera.position.copy(controls.target).add(off.setLength(d)); controls.update(); }
+document.getElementById('zin').onclick=()=>dolly(0.75);
+document.getElementById('zout').onclick=()=>dolly(1.0/0.75);
 
 // ---- soils: USDA map units draped in color on the terrain ----
 const SOIL_PALETTE=['#c9a15a','#7fb3c9','#8fb26a','#c98a8a','#a58fd0','#6ac9a8','#d0c06a','#b5926a'];
