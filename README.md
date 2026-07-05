@@ -39,6 +39,11 @@ polygons, base64-packed). `index.html` is a self-contained three.js viewer.
   degrees: green ≈ flat, yellow ≈ 15–25°, red ≈ 45°+. Hover reads the exact value.
 - **Aspect** — the compass direction each slope faces (downhill direction): blue N, green E,
   gold S, purple W; near-flat ground (<2°) is gray. South-facing slopes get the most sun.
+- **Sun** — modeled average direct-sun hours per day over the year, from the horizon method:
+  for 12 representative days × half-hourly sun positions at the site latitude, each cell is
+  lit if the sun clears its local terrain horizon; cells under tree canopy (≥2.5 m) are put in
+  deep shade. Bright = open, sunny ground; dark = shaded. A model (within-tile terrain +
+  canopy), not a measurement — the layer for siting a garden or panels.
 - **Relief** — the headline figure is highest minus lowest ground elevation **within the
   parcel boundary**; the secondary figure is the same range across the whole square view
   tile (parcel + context margin). Parcel extremes cross-checked against the USGS EPQS

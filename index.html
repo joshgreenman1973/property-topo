@@ -141,6 +141,7 @@
     <div class="tab sbtn" data-surf="aerial" data-tip="Real aerial photograph draped over the 3D ground. Note: the available imagery here is off-season (leaf-off), so the woods look thinner than they are in summer.">Photo</div>
     <div class="tab sbtn" data-surf="slope" data-tip="Steepness of the ground at every square meter: green = flat, yellow &asymp; 15&ndash;25&deg;, red = 45&deg;+. Green areas are the easy places to build, garden or walk.">Slope</div>
     <div class="tab sbtn" data-surf="aspect" data-tip="ASPECT = the compass direction a slope faces (the way water would run off it, the way it 'looks'). Blue faces north (shady, cool, snow lingers), gold faces south (sunniest), green east (morning sun), purple west (afternoon sun). Flat ground is gray. Useful for siting gardens, solar panels or a sunny terrace.">Aspect</div>
+    <div class="tab sbtn" data-surf="solar" data-tip="Average DIRECT-SUN HOURS per day, modeled across the whole year — accounting for terrain self-shading (hills/slopes casting shadows through the day) AND tree canopy (ground under trees gets deep shade). Bright yellow = most sun (open, favorably-oriented ground); dark = shaded. This is the layer for siting a garden, solar panels or a sunny spot. A modeled estimate, not a measurement.">Sun</div>
   </div>
   <label class="toggle"><input type="checkbox" id="trees"><span data-tip="A translucent green canopy surface wherever the LiDAR measured vegetation at least 2.5 m tall, drawn at its measured height &mdash; hover to read the height at any spot. Computed from the newest USGS flights (2021 for Aquinnah, 2022 for Cornwall) directly from the raw point clouds. Building footprints are excluded. Both properties are densely wooded. No streams or ponds were found on either parcel.">Trees (canopy)</span></label>
   <label class="toggle"><input type="checkbox" id="nbrs"><span data-tip="The parcels that share a boundary with this property, from the same official assessor rolls (public record). Each neighbor gets its own color: a flat colored panel around the base of the 3D terrain (like a plat map), a matching label with owner of record and lot size, and a matching swatch in the list below. 'Unknown' means the assessor record has no owner attached (often road or utility strips).">Adjoining owners</span></label>
@@ -201,7 +202,7 @@
 </div>
 <div id="hint">drag&nbsp;·&nbsp;orbit&nbsp;&nbsp;·&nbsp;&nbsp;scroll&nbsp;·&nbsp;zoom&nbsp;&nbsp;·&nbsp;&nbsp;double-click&nbsp;·&nbsp;fly in&nbsp;&nbsp;·&nbsp;&nbsp;right-drag&nbsp;·&nbsp;pan&nbsp;&nbsp;·&nbsp;&nbsp;hover for lat/long</div>
 
-<script src="terrain_data.js?v=20260704c"></script>
+<script src="terrain_data.js?v=20260704d"></script>
 <script type="importmap">
 { "imports": {
   "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
@@ -275,6 +276,11 @@ function slopeColor(s){ const t=Math.min(s/45,1);
   for(let i=0;i<stops.length-1;i++){ const [a,ca]=stops[i],[b,cb]=stops[i+1];
     if(t<=b){ const f=(t-a)/(b-a); return [ca[0]+(cb[0]-ca[0])*f,ca[1]+(cb[1]-ca[1])*f,ca[2]+(cb[2]-ca[2])*f].map(v=>v/255); } }
   return [1,0,0]; }
+function solarColor(t){ t=Math.min(Math.max(t,0),1);   // 0 = shaded, 1 = full sun (magma-ish)
+  const stops=[[0,[38,42,64]],[0.3,[92,54,110]],[0.6,[204,92,70]],[0.82,[240,158,58]],[1,[255,232,140]]];
+  for(let i=0;i<stops.length-1;i++){ const [a,ca]=stops[i],[b,cb]=stops[i+1];
+    if(t<=b){ const f=(t-a)/(b-a); return [ca[0]+(cb[0]-ca[0])*f,ca[1]+(cb[1]-ca[1])*f,ca[2]+(cb[2]-ca[2])*f].map(v=>v/255); } }
+  return [1,0.9,0.55]; }
 const compass8=az=>['N','NE','E','SE','S','SW','W','NW'][Math.round(az/45)%8];
 // house materials from ground truth: Aquinnah = weathered gray cedar shingle (owner photo);
 // Cornwall = natural wood contemporary with a dark roof (listing + aerial).
@@ -376,7 +382,8 @@ function build(key){
 
   // ---- clipped terrain mesh ----
   const pos=new Float32Array(N*N*3), col=new Float32Array(N*N*3), elev=new Float32Array(N*N), uv=new Float32Array(N*N*2);
-  const colSlope=new Float32Array(N*N*3), colAspect=new Float32Array(N*N*3);
+  const colSlope=new Float32Array(N*N*3), colAspect=new Float32Array(N*N*3), colSolar=new Float32Array(N*N*3);
+  const SOLAR=D.solar_b64?decodeU8(D.solar_b64):null;
   let pzmin=Infinity, pzmax=-Infinity;
   for(let r=0;r<N;r++)for(let c=0;c<N;c++){ const i=r*N+c;
     const x=-half+(c+0.5)*res, z=-half+(r+0.5)*res, hz=H[i];
@@ -387,11 +394,13 @@ function build(key){
     const sc=slopeColor(sl); colSlope[i*3]=sc[0]; colSlope[i*3+1]=sc[1]; colSlope[i*3+2]=sc[2];
     const ac=sl<2?[0.55,0.57,0.6]:aspectColor(az);   // near-flat = neutral gray
     colAspect[i*3]=ac[0]; colAspect[i*3+1]=ac[1]; colAspect[i*3+2]=ac[2];
+    const soc=solarColor(SOLAR?(SOLAR[i]/10)/12:0.5);   // sun-hours/day, ~12h full
+    colSolar[i*3]=soc[0]; colSolar[i*3+1]=soc[1]; colSolar[i*3+2]=soc[2];
     if(inPoly(x,z,outerRing)){ if(hz<pzmin)pzmin=hz; if(hz>pzmax)pzmax=hz; } }
   parcelRelief=pzmax-pzmin;
   const snow=new Float32Array(col.length);
   for(let i=0;i<col.length;i+=3){ snow[i]=col[i]*0.22+0.725; snow[i+1]=col[i+1]*0.22+0.74; snow[i+2]=col[i+2]*0.22+0.757; }
-  colorSets={elev:col.slice(0), slope:colSlope, aspect:colAspect, snow};  // elev copied: the live buffer gets overwritten by season swaps
+  colorSets={elev:col.slice(0), slope:colSlope, aspect:colAspect, solar:colSolar, snow};  // elev copied: the live buffer gets overwritten by season swaps
   const idx=[];
   for(let r=0;r<N-1;r++)for(let c=0;c<N-1;c++){
     const a=r*N+c,b=r*N+c+1,d=(r+1)*N+c,e=(r+1)*N+c+1;
@@ -412,7 +421,7 @@ function build(key){
   if(tMats){ tMats.tint.dispose(); tMats.aerial.dispose(); }
   tMats={tint:matTint,aerial:matAerial};
   terrainGeo=geo;
-  if(surfMode==='slope'||surfMode==='aspect') geo.attributes.color.array.set(colorSets[surfMode]);
+  if(surfMode==='slope'||surfMode==='aspect'||surfMode==='solar') geo.attributes.color.array.set(colorSets[surfMode]);
   const shaderPatch=(sh)=>{ Object.assign(sh.uniforms,uniforms);
     sh.vertexShader='attribute float trueElev;\nvarying float vE;\nuniform float uExag;\n'+
       sh.vertexShader.replace('#include <begin_vertex>','#include <begin_vertex>\n transformed.y*=uExag;\n vE=trueElev;');
@@ -1033,6 +1042,8 @@ function updateLegend(){
     lo.textContent='0° flat'; hi.textContent='45°+ steep'; lab.textContent='Slope'; }
   else if(surfMode==='aspect'){ bar.style.background='linear-gradient(90deg,#4c8ed9,#57b26a,#e0c04f,#b06fc4,#4c8ed9)';
     lo.textContent='N → E → S'; hi.textContent='→ W → N'; lab.textContent='Faces'; }
+  else if(surfMode==='solar'){ bar.style.background='linear-gradient(90deg,#262a40,#5c366e,#cc5c46,#f09e3a,#ffe88c)';
+    lo.textContent='shade'; hi.textContent='~12 h sun'; lab.textContent='Direct sun / day'; }
   else { bar.style.background='linear-gradient(90deg,#2f6b3f,#6a8f3c,#b8a56b,#96706c,#ecf0f3)';
     lo.textContent=D.zmin.toFixed(0)+' m'; hi.textContent=D.zmax.toFixed(0)+' m'; lab.textContent='Elevation'; }
 }
