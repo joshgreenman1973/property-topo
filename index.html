@@ -686,15 +686,19 @@ function build(key){
     lighthouse:'🔦',castle:'🏰',cape:'🧭',bridge:'🌉',place:'📍'};
   const lmg=new THREE.Group(); lmg.name='landmarks';
   const lmItems=(D.landmarks&&D.landmarks.items)||[];
+  // observer point = the house (footprint centroid, eye ~6 m up)
+  let hx=0, hz=0; const hb=(D.buildings||[]).find(b=>b.occ!=='connector');
+  if(hb){ const r=hb.mesh; hx=r.reduce((s,p)=>s+p[0],0)/r.length; hz=r.reduce((s,p)=>s+p[1],0)/r.length; }
+  const eyeY=sampleH(hx,hz)*ex+6;
   lmItems.forEach((it,i)=>{
     const th=it.bearing*Math.PI/180, dx=Math.sin(th), dz=-Math.cos(th);
     const rad=half*1.18, ly=relief*ex+16+ (i%2)*9;   // stagger heights so labels don't overlap
     const txt=`${LKICON[it.kind]||'📍'} ${it.name}`+(it.dist_km!=null?` · ${it.dist_km} km`:'');
     const sp=roadLabel(txt, it.kind==='water'?'#6cc7e0':'#e3d9a1');
     sp.position.set(dx*rad, ly, dz*rad); lmg.add(sp);
-    // faint sightline from the house area toward it
-    const lgm=new LineGeometry(); lgm.setPositions([0,relief*ex*0.5,0, dx*rad,ly,dz*rad]);
-    const lmm=new LineMaterial({color:it.kind==='water'?0x3a7d91:0x5a5230,linewidth:1,worldUnits:false,transparent:true,opacity:0.35});
+    // sightline straight from the house toward the landmark
+    const lgm=new LineGeometry(); lgm.setPositions([hx,eyeY,hz, dx*rad,ly,dz*rad]);
+    const lmm=new LineMaterial({color:it.kind==='water'?0x3a7d91:0x5a5230,linewidth:1,worldUnits:false,transparent:true,opacity:0.4});
     lmm.resolution.set(innerWidth,innerHeight); lmg.add(new Line2(lgm,lmm));
   });
   lmg.visible=false; group.add(lmg);
