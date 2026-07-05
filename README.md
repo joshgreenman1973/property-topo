@@ -94,6 +94,11 @@ polygons, base64-packed). `index.html` is a self-contained three.js viewer.
 - **Seasons** — purely visual simulation: fall foliage palette in ~8 m crown patches,
   winter snow (ground, roofs, frost-gray canopy) and cold light, spring leaf-out. No
   measurement changes; if "real sun" is on, the month follows the season.
+- **Historical imagery time-slider** — in Photo mode, an "Imagery date" slider scrubs through
+  dated satellite frames from [Esri World Imagery Wayback](https://livingatlas.arcgis.com/wayback/)
+  (2014→2026), each stitched from web-mercator tiles and reprojected onto the terrain tile;
+  near-identical frames are deduped so each step is a real change. See the land, trees and
+  buildings evolve over a decade.
 - **House materials** — wall and roof colors are set from ground truth: Aquinnah from an
   owner photo (weathered gray cedar shingle, ~#a39a90 walls); Cornwall from the real-estate
   listing + aerial (1975 natural-wood contemporary with a dark roof). Snow-swapped in winter.

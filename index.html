@@ -143,6 +143,10 @@
     <div class="tab sbtn" data-surf="aspect" data-tip="ASPECT = the compass direction a slope faces (the way water would run off it, the way it 'looks'). Blue faces north (shady, cool, snow lingers), gold faces south (sunniest), green east (morning sun), purple west (afternoon sun). Flat ground is gray. Useful for siting gardens, solar panels or a sunny terrace.">Aspect</div>
     <div class="tab sbtn" data-surf="solar" data-tip="Average DIRECT-SUN HOURS per day, modeled across the whole year — accounting for terrain self-shading (hills/slopes casting shadows through the day) AND tree canopy (ground under trees gets deep shade). Bright yellow = most sun (open, favorably-oriented ground); dark = shaded. This is the layer for siting a garden, solar panels or a sunny spot. A modeled estimate, not a measurement.">Sun</div>
   </div>
+  <div id="timeSlider" style="display:none">
+    <div class="row" style="margin-top:8px"><label data-tip="Scrub back through years of satellite imagery (Esri World Imagery Wayback) draped on the 3D terrain — watch the land, trees and buildings change over time. Shown in Photo mode.">Imagery date</label><span class="val" id="wbDate"></span></div>
+    <input type="range" id="wb" min="0" max="0" step="1" value="0">
+  </div>
   <label class="toggle"><input type="checkbox" id="trees"><span data-tip="A translucent green canopy surface wherever the LiDAR measured vegetation at least 2.5 m tall, drawn at its measured height &mdash; hover to read the height at any spot. Computed from the newest USGS flights (2021 for Aquinnah, 2022 for Cornwall) directly from the raw point clouds. Building footprints are excluded. Both properties are densely wooded. No streams or ponds were found on either parcel.">Trees (canopy)</span></label>
   <label class="toggle"><input type="checkbox" id="nbrs"><span data-tip="The parcels that share a boundary with this property, from the same official assessor rolls (public record). Each neighbor gets its own color: a flat colored panel around the base of the 3D terrain (like a plat map), a matching label with owner of record and lot size, and a matching swatch in the list below. 'Unknown' means the assessor record has no owner attached (often road or utility strips).">Adjoining owners</span></label>
   <div id="nbList" style="display:none;font-size:11px;line-height:1.55;color:var(--mut);margin:2px 0 4px 23px"></div>
@@ -202,7 +206,7 @@
 </div>
 <div id="hint">drag&nbsp;·&nbsp;orbit&nbsp;&nbsp;·&nbsp;&nbsp;scroll&nbsp;·&nbsp;zoom&nbsp;&nbsp;·&nbsp;&nbsp;double-click&nbsp;·&nbsp;fly in&nbsp;&nbsp;·&nbsp;&nbsp;right-drag&nbsp;·&nbsp;pan&nbsp;&nbsp;·&nbsp;&nbsp;hover for lat/long</div>
 
-<script src="terrain_data.js?v=20260704d"></script>
+<script src="terrain_data.js?v=20260704e"></script>
 <script type="importmap">
 { "imports": {
   "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
@@ -699,6 +703,7 @@ function build(key){
   applyToggles();
   updateLegend();
   applySeason();
+  if(typeof setSurf==='function') setSurf(surfMode);   // reapply surface + wayback slider for this property
   // frame: bird's-eye 3/4 view that fits the whole tile
   const topH=relief*ex;
   const R=half*1.4;
@@ -844,13 +849,30 @@ drain.onchange=applyToggles; viewshed.onchange=applyToggles; nbrs.onchange=apply
 soilsT.onchange=applyToggles; landmarks.onchange=applyToggles;
 
 // surface mode: swap material/colors in place — camera never resets
+const b64TexCache={};
+function texFromB64(id,b64){ if(b64TexCache[id]) return b64TexCache[id];
+  const img=new Image(); const t=new THREE.Texture(img); t.colorSpace=THREE.SRGBColorSpace; t.anisotropy=8; t.flipY=false;
+  img.onload=()=>{ t.needsUpdate=true; }; img.src='data:image/jpeg;base64,'+b64;
+  b64TexCache[id]=t; return t; }
+function applyWaybackFrame(i){
+  const fr=(D.wayback||[])[i]; if(!fr||!tMats) return;
+  tMats.aerial.map=texFromB64(currentKey()+':wb'+i, fr.b64); tMats.aerial.needsUpdate=true;
+  document.getElementById('wbDate').textContent=fr.date;
+}
 function setSurf(mode){
   surfMode=mode;
   document.querySelectorAll('.sbtn').forEach(b=>b.classList.toggle('active',b.dataset.surf===mode));
   const m=group&&group.children[0];
   if(!m||!tMats||!terrainGeo) return;
-  if(mode==='aerial'){ m.material=tMats.aerial; }
-  else {
+  const wbEl=document.getElementById('timeSlider'), wb=document.getElementById('wb');
+  const frames=D.wayback||[];
+  if(mode==='aerial'){
+    m.material=tMats.aerial;
+    if(frames.length){ wbEl.style.display='block'; wb.max=frames.length-1;
+      if(+wb.value>frames.length-1) wb.value=frames.length-1; applyWaybackFrame(+wb.value); }
+    else { wbEl.style.display='none'; tMats.aerial.map=aerialTex(currentKey(),D.aerial_b64); tMats.aerial.needsUpdate=true; }
+  } else {
+    wbEl.style.display='none';
     m.material=tMats.tint;
     terrainGeo.attributes.color.array.set(mode==='elev'?(season==='winter'?colorSets.snow:colorSets.elev):colorSets[mode]);
     terrainGeo.attributes.color.needsUpdate=true;
@@ -879,6 +901,7 @@ function applySeason(){
 }
 document.querySelectorAll('.szn').forEach(b=>b.onclick=()=>{ season=b.dataset.szn; applySeason(); });
 document.querySelectorAll('.sbtn').forEach(b=>b.onclick=()=>setSurf(b.dataset.surf));
+document.getElementById('wb').oninput=e=>applyWaybackFrame(+e.target.value);
 
 // ---- +/- zoom buttons (dolly toward/away from the look-at point) ----
 function dolly(f){ tween=null; const off=camera.position.clone().sub(controls.target);
