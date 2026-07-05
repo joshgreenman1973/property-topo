@@ -206,7 +206,7 @@
 </div>
 <div id="hint">drag&nbsp;·&nbsp;orbit&nbsp;&nbsp;·&nbsp;&nbsp;scroll&nbsp;·&nbsp;zoom&nbsp;&nbsp;·&nbsp;&nbsp;double-click&nbsp;·&nbsp;fly in&nbsp;&nbsp;·&nbsp;&nbsp;right-drag&nbsp;·&nbsp;pan&nbsp;&nbsp;·&nbsp;&nbsp;hover for lat/long</div>
 
-<script src="terrain_data.js?v=20260704e"></script>
+<script src="terrain_data.js?v=20260705a"></script>
 <script type="importmap">
 { "imports": {
   "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
@@ -683,7 +683,7 @@ function build(key){
 
   // ---- visible landmarks: labels floated toward each one's bearing ----
   const LKICON={peak:'⛰',water:'🌊',island:'🏝',cliff:'🧗',
-    lighthouse:'🔦',castle:'🏰',cape:'🧭',place:'📍'};
+    lighthouse:'🔦',castle:'🏰',cape:'🧭',bridge:'🌉',place:'📍'};
   const lmg=new THREE.Group(); lmg.name='landmarks';
   const lmItems=(D.landmarks&&D.landmarks.items)||[];
   lmItems.forEach((it,i)=>{
