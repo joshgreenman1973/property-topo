@@ -54,6 +54,11 @@ polygons, base64-packed). `index.html` is a self-contained three.js viewer.
   are not occluders, so it is the cleared/leaf-off upper bound on visibility.
 - **Elevation profile** — click two points; the cross-section samples the 1 m grid every
   ~0.4% of the line and reports length, high/low, climb and descent.
+- **Visible landmarks** — named features (peaks, water, cliffs, islands, lighthouses) that are
+  in true line of sight from the house, computed over a regional bare-earth DEM (3DEP, ~100 m)
+  with Earth-curvature and refraction. Labels float toward each one's bearing with its distance;
+  faint sightlines run from the house. Bare-earth — tree cover can block a view the terrain
+  allows. (Cornwall correctly sees Butter Hill/Storm King, not the Hudson — the ridge blocks it.)
 - **Adjoining owners** — parcels intersecting the property boundary, from the same assessor
   services (owner of record, site address, acreage — all public record), drawn as a
   color-coded plat mosaic with matching labels and list swatches. Assessor-layer duplicates

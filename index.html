@@ -149,6 +149,7 @@
   <div id="soilList" style="display:none;font-size:11px;line-height:1.55;color:var(--mut);margin:2px 0 4px 23px"></div>
   <label class="toggle"><input type="checkbox" id="drain"><span data-tip="Where rain concentrates as it runs downhill, computed from the terrain (D8 flow accumulation): each cell drains to its steepest neighbor, and blue traces appear where at least ~150 upslope cells feed through. These are ephemeral runoff paths &mdash; not mapped streams (neither parcel has one).">Drainage paths</span></label>
   <label class="toggle"><input type="checkbox" id="viewshed"><span data-tip="Which parts of the parcel a person standing at the house (eye 2 m above ground) can theoretically see: gold tint = line-of-sight reaches that ground, computed by sweeping 720 sight rays over the bare-earth surface. Terrain-only &mdash; trees and buildings are NOT accounted for, so real visibility through this much forest is far less. Treat it as the cleared / leaf-off upper bound.">Viewshed from house</span></label>
+  <label class="toggle"><input type="checkbox" id="landmarks"><span data-tip="Named landmarks that are in the line of sight from the house, computed over a regional bare-earth elevation model with Earth-curvature and refraction. Labels float toward each one, over the direction and distance it lies. Bare-earth sightlines — tree cover can block a view the terrain allows, so treat these as 'visible when the leaves and intervening trees don't block it.'">Visible landmarks</span></label>
   <label class="toggle"><input type="checkbox" id="labels" checked><span data-tip="North / South / East / West markers placed at the edges of the view. North also aligns with the compass at top-right.">Compass labels</span></label>
   <label class="toggle"><input type="checkbox" id="wire"><span data-tip="Shows the underlying triangular terrain mesh &mdash; every vertex is one ~1&#8202;m LiDAR elevation sample.">Wireframe</span></label>
 
@@ -200,7 +201,7 @@
 </div>
 <div id="hint">drag&nbsp;·&nbsp;orbit&nbsp;&nbsp;·&nbsp;&nbsp;scroll&nbsp;·&nbsp;zoom&nbsp;&nbsp;·&nbsp;&nbsp;double-click&nbsp;·&nbsp;fly in&nbsp;&nbsp;·&nbsp;&nbsp;right-drag&nbsp;·&nbsp;pan&nbsp;&nbsp;·&nbsp;&nbsp;hover for lat/long</div>
 
-<script src="terrain_data.js?v=20260704a"></script>
+<script src="terrain_data.js?v=20260704b"></script>
 <script type="importmap">
 { "imports": {
   "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
@@ -667,6 +668,24 @@ function build(key){
   const bl=roadLabel('50 m'); bl.position.set(half+10,barY+8,half-40); labs.add(bl);
   group.add(labs);
 
+  // ---- visible landmarks: labels floated toward each one's bearing ----
+  const LKICON={peak:'⛰',water:'🌊',island:'🏝',cliff:'🧗',
+    lighthouse:'🔦',castle:'🏰',cape:'🧭',place:'📍'};
+  const lmg=new THREE.Group(); lmg.name='landmarks';
+  const lmItems=(D.landmarks&&D.landmarks.items)||[];
+  lmItems.forEach((it,i)=>{
+    const th=it.bearing*Math.PI/180, dx=Math.sin(th), dz=-Math.cos(th);
+    const rad=half*1.18, ly=relief*ex+16+ (i%2)*9;   // stagger heights so labels don't overlap
+    const txt=`${LKICON[it.kind]||'📍'} ${it.name}`+(it.dist_km!=null?` · ${it.dist_km} km`:'');
+    const sp=roadLabel(txt, it.kind==='water'?'#6cc7e0':'#e3d9a1');
+    sp.position.set(dx*rad, ly, dz*rad); lmg.add(sp);
+    // faint sightline from the house area toward it
+    const lgm=new LineGeometry(); lgm.setPositions([0,relief*ex*0.5,0, dx*rad,ly,dz*rad]);
+    const lmm=new LineMaterial({color:it.kind==='water'?0x3a7d91:0x5a5230,linewidth:1,worldUnits:false,transparent:true,opacity:0.35});
+    lmm.resolution.set(innerWidth,innerHeight); lmg.add(new Line2(lgm,lmm));
+  });
+  lmg.visible=false; group.add(lmg);
+
   clearProfile();
   applyToggles();
   updateLegend();
@@ -691,6 +710,7 @@ function applyToggles(){ if(!group) return;
   g('buildings') && (g('buildings').visible=buildings.checked);
   g('roads') && (g('roads').visible=roads.checked);
   g('trees') && (g('trees').visible=trees.checked);
+  g('landmarks') && (g('landmarks').visible=landmarks.checked);
   g('neighbors') && (g('neighbors').visible=nbrs.checked);
   const nbf=D._nbf||D.neighbors||[];
   document.getElementById('nbList').style.display=nbrs.checked&&nbf.length?'block':'none';
@@ -785,6 +805,7 @@ const exag=document.getElementById('exag'), sun_=document.getElementById('sun'),
   trees=document.getElementById('trees'), roads=document.getElementById('roads'),
   drain=document.getElementById('drain'), viewshed=document.getElementById('viewshed'),
   nbrs=document.getElementById('nbrs'), soilsT=document.getElementById('soilsT'),
+  landmarks=document.getElementById('landmarks'),
   realsun=document.getElementById('realsun'), mon=document.getElementById('mon'), hour=document.getElementById('hour');
 
 const MONTHS=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
@@ -809,7 +830,7 @@ ci.oninput=()=>{ const v=CI_STEPS[+ci.value]; document.getElementById('ciVal').t
 outline.onchange=applyToggles; labels.onchange=applyToggles; buildings.onchange=applyToggles;
 trees.onchange=applyToggles; roads.onchange=applyToggles;
 drain.onchange=applyToggles; viewshed.onchange=applyToggles; nbrs.onchange=applyToggles;
-soilsT.onchange=applyToggles;
+soilsT.onchange=applyToggles; landmarks.onchange=applyToggles;
 
 // surface mode: swap material/colors in place — camera never resets
 function setSurf(mode){
