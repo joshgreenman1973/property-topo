@@ -126,6 +126,7 @@
   <input type="range" id="ci" min="0" max="4" step="1" value="1">
   <label class="toggle"><input type="checkbox" id="outline" checked><span data-tip="The gold line is the legal property boundary from the official assessor's parcel map, draped onto the 3D surface at its true elevation.">Parcel boundary</span></label>
   <label class="toggle"><input type="checkbox" id="buildings" checked><span data-tip="Real building footprints (FEMA USA Structures / assessor), placed at their true location and extruded to their measured height. Roof heights are LiDAR-derived where available, otherwise estimated from the assessor's story count. Where FEMA splits one house into separate roof sections (its imagery can't see a middle section hidden under tree canopy &mdash; the Cornwall house reads as two), nearby sections are counted as one building and joined by an inferred connector &mdash; at Cornwall a cylindrical rotunda per the owner. Roof shape: walls rise to the eave and a gabled roof to the ridge. Aquinnah's eave (5.8 m) and ridge (8.3 m) are measured from building-classified LiDAR returns; Cornwall's roof is under tree canopy, so its form is estimated from the FEMA height. Roof color is sampled from the aerial photo. True scale &mdash; never vertically exaggerated.">Buildings</span></label>
+  <label class="toggle" id="housemodelRow" style="display:none"><input type="checkbox" id="housemodel"><span data-tip="Swaps the crude FEMA footprint box for a detailed 3D model of the house, reconstructed from the listing floor plans (the standalone house-3d-model). Walls are extruded directly from the plan drawings and placed at the real footprint, true scale and orientation, sitting on the terrain. Levels stack at 10.5 ft; the round rotunda joining the two wings renders as glass. A massing study, not a survey &mdash; placement on the parcel is fit to the FEMA footprint and is accurate to a couple of feet.">Detailed house model</span></label>
   <label class="toggle"><input type="checkbox" id="roads" checked><span data-tip="Roads and driveways from OpenStreetMap, draped onto the terrain with approximate widths by road type (highway, residential street, driveway). Floating labels mark the named roads.">Roads</span></label>
   <div class="row" style="margin-top:12px"><label data-tip="Simulates the look of each season: summer greens, fall foliage colors, winter snow cover with snow-laden canopy and roofs, spring early leaf-out. Purely visual (colors and light) &mdash; the underlying measurements never change. If 'Real sun' is on, the month jumps to match the season.">Season</label></div>
   <div class="tabs views">
@@ -365,6 +366,103 @@ function polyCentroidArea(pts){ let A=0,cx=0,cz=0;
   A/=2; if(Math.abs(A)<1e-6) return [0,0,0];
   return [cx/(6*A), cz/(6*A), Math.abs(A)];
 }
+
+// ===== detailed house model (Cornwall) placed on the real parcel =====
+// Walls are extruded from the same navy-wall masks used by the standalone
+// house-3d-model, then mapped from plan-feet into parcel-meters by a similarity
+// transform fit to the FEMA footprint (the two roof masses + the rotunda).
+const HOUSE_PLANS = {
+  0:{file:'wallmask-lower.png', imgW:1394, imgH:1644, w:96.2, h:113.4, cx:-4.76, cy:4.0,  level:0},
+  1:{file:'wallmask-main.png',  imgW:1474, imgH:1686, w:99.2, h:113.5, cx:-1.62, cy:5.04, level:1},
+  2:{file:'wallmask-upper.png', imgW:1336, imgH:1664, w:40.7, h:50.8,  cx:11.6,  cy:22.0, level:2},
+};
+const H_SLAB=0.9, H_GAP=10.5, H_WALL=9;             // house dimensions, feet
+const H_ROT_C=[-0.41,-6.6], H_ROT_R=7.2;            // rotunda center + radius, plan feet
+// fit: plan (X,Y) feet -> parcel (X,Z) meters.  Tunable live via window.__houseFit.
+let houseFit = { s:0.3197, deg:146.9, t0:6.90, t1:-21.69, baseY:0 };
+let houseGroup=null, houseVisible=false;
+function houseMatrix(){
+  const {s,deg,t0,t1,baseY}=houseFit, a=deg*Math.PI/180, ca=Math.cos(a), sa=Math.sin(a);
+  const M=new THREE.Matrix4();
+  M.set( s*ca, 0, -s*sa, t0,
+         0,    s, 0,     baseY,
+         s*sa, 0,  s*ca, t1,
+         0,    0, 0,     1 );
+  return M;
+}
+function buildHouseModel(){
+  if(houseGroup){ group.remove(houseGroup); houseGroup=null; }
+  const g=new THREE.Group(); g.name='housemodel';
+  g.matrixAutoUpdate=false; g.matrix.copy(houseMatrix());
+  g.visible=houseVisible;
+  const wallMat =new THREE.MeshStandardMaterial({color:0xece3cf, roughness:0.92, metalness:0});
+  const glassMat=new THREE.MeshStandardMaterial({color:0xbcd6e8, roughness:0.08, metalness:0,
+      transparent:true, opacity:0.30, side:THREE.DoubleSide, depthWrite:false});
+  Object.values(HOUSE_PLANS).forEach(p=>{
+    const im=new Image();
+    im.onload=()=>{
+      const gw=im.width, gh=im.height, cv=document.createElement('canvas');
+      cv.width=gw; cv.height=gh; const cx2=cv.getContext('2d'); cx2.drawImage(im,0,0);
+      const dat=cx2.getImageData(0,0,gw,gh).data;
+      const cellW=(p.w/gw)*1.5, cellH=(p.h/gh)*1.5;      // slight overlap so walls join
+      const solid=[], glass=[], hasRot=(p.level<=1);
+      for(let r=0;r<gh;r++) for(let c=0;c<gw;c++){
+        if(dat[(r*gw+c)*4]<128) continue;
+        const X=p.cx+((c+0.5)/gw-0.5)*p.w, Y=p.cy+((r+0.5)/gh-0.5)*p.h;
+        if(hasRot && Math.hypot(X-H_ROT_C[0],Y-H_ROT_C[1])<H_ROT_R) glass.push([X,Y]); else solid.push([X,Y]);
+      }
+      const yc=H_SLAB+p.level*H_GAP+H_WALL/2;
+      const mk=(arr,mat)=>{ if(!arr.length) return;
+        const geo=new THREE.BoxGeometry(cellW,H_WALL,cellH);
+        const inst=new THREE.InstancedMesh(geo,mat,arr.length), m=new THREE.Matrix4();
+        arr.forEach(([X,Y],i)=>{ m.makeTranslation(X,yc,Y); inst.setMatrixAt(i,m); });
+        inst.instanceMatrix.needsUpdate=true; inst.castShadow=true; inst.receiveShadow=true; g.add(inst); };
+      mk(solid,wallMat); mk(glass,glassMat);
+    };
+    im.src='house/'+p.file;
+  });
+  // floor plates per level (footprint from the clean plan-image alpha) so the
+  // stacked storeys read as solid plates rather than a see-through wall maze
+  const floorMat=new THREE.MeshStandardMaterial({color:0x9a744a, roughness:0.9, metalness:0, side:THREE.DoubleSide});
+  const addFloor=(p, imgFile)=>{
+    const im=new Image();
+    im.onload=()=>{
+      const gw=Math.min(200,im.width), sc=gw/im.width, gh=Math.round(im.height*sc);
+      const cv=document.createElement('canvas'); cv.width=gw; cv.height=gh;
+      const ctx=cv.getContext('2d'); ctx.drawImage(im,0,0,gw,gh);
+      const dat=ctx.getImageData(0,0,gw,gh).data;
+      const occ=new Uint8Array(gw*gh);
+      for(let i=0;i<gw*gh;i++) if(dat[i*4+3]>128) occ[i]=1;
+      // label 4-connected components; drop small detached plates (thin-necked decks),
+      // but keep any large body so a wing/main split at the rotunda survives
+      const lab=new Int32Array(gw*gh), comp=[]; let cur=0; const st=[];
+      for(let i=0;i<gw*gh;i++){ if(occ[i]&&!lab[i]){ cur++; let n=0; st.length=0; st.push(i); lab[i]=cur;
+        while(st.length){ const q=st.pop(); n++; const r=(q/gw)|0, cc=q%gw;
+          const nb=[q-gw,q+gw, cc>0?q-1:-1, cc<gw-1?q+1:-1];
+          for(const w of nb){ if(w>=0&&w<gw*gh&&occ[w]&&!lab[w]){ lab[w]=cur; st.push(w); } } }
+        comp[cur]=n; } }
+      const maxN=Math.max(...comp.filter(Boolean)); const minKeep=maxN*0.12;
+      const tiles=[];
+      for(let r=0;r<gh;r++) for(let c=0;c<gw;c++){ const l=lab[r*gw+c];
+        if(l && comp[l]>=minKeep) tiles.push([p.cx+((c+0.5)/gw-0.5)*p.w, p.cy+((r+0.5)/gh-0.5)*p.h]); }
+      if(!tiles.length) return;
+      const geo=new THREE.BoxGeometry((p.w/gw)*1.5, H_SLAB, (p.h/gh)*1.5);
+      const inst=new THREE.InstancedMesh(geo,floorMat,tiles.length), m=new THREE.Matrix4();
+      const yF=p.level*H_GAP+H_SLAB*0.5;
+      tiles.forEach(([X,Y],i)=>{ m.makeTranslation(X,yF,Y); inst.setMatrixAt(i,m); });
+      inst.instanceMatrix.needsUpdate=true; inst.receiveShadow=true; g.add(inst);
+    };
+    im.src='house/'+imgFile;
+  };
+  addFloor(HOUSE_PLANS[0],'plan-lower-foot.png');   // each footprint: largest blob, holes filled
+  addFloor(HOUSE_PLANS[1],'plan-main-foot.png');
+  addFloor(HOUSE_PLANS[2],'plan-upper-foot.png');
+
+  group.add(g); houseGroup=g;
+  return g;
+}
+// live tuning helper — window.__setHouseFit({deg:-33, t0:9, ...}); then rebuild
+window.__setHouseFit=o=>{ Object.assign(houseFit,o); if(houseGroup) houseGroup.matrix.copy(houseMatrix()); };
 
 function build(key){
   D = window.TERRAIN[key];
@@ -703,6 +801,19 @@ function build(key){
   });
   lmg.visible=false; group.add(lmg);
 
+  // detailed house model on the Cornwall parcel (replaces the crude FEMA box)
+  if(key==='cornwall'){
+    const {s,deg,t0,t1}=houseFit, a=deg*Math.PI/180, ca=Math.cos(a), sa=Math.sin(a);
+    const toWorld=(X,Y)=>[t0+s*(ca*X-sa*Y), t1+s*(sa*X+ca*Y)];
+    let gmin=Infinity;
+    // sample terrain under the plan footprint corners + centroid, sit house on the lowest
+    for(const [X,Y] of [[-5.5,0.8],[-44,-42],[32,-42],[32,58],[-44,58],[-5.5,-6.6]]){
+      const [wx,wz]=toWorld(X,Y); const gh2=sampleH(wx,wz); if(gh2<gmin) gmin=gh2;
+    }
+    houseFit.baseY=gmin*ex;   // sampleH is already relative to zmin, like the FEMA buildings
+    buildHouseModel();
+  }
+
   clearProfile();
   applyToggles();
   updateLegend();
@@ -726,6 +837,13 @@ function applyToggles(){ if(!group) return;
   g('outline') && (g('outline').visible=outline.checked);
   g('labels') && (g('labels').visible=labels.checked);
   g('buildings') && (g('buildings').visible=buildings.checked);
+  // detailed house model (Cornwall only) — when shown, hide the crude FEMA box
+  const hmRow=document.getElementById('housemodelRow'), hm=document.getElementById('housemodel');
+  const isCornwall=currentKey()==='cornwall';
+  if(hmRow) hmRow.style.display=isCornwall?'flex':'none';
+  houseVisible = isCornwall && hm && hm.checked;
+  if(g('housemodel')) g('housemodel').visible=houseVisible;
+  if(houseVisible && g('buildings')) g('buildings').visible=false;
   g('roads') && (g('roads').visible=roads.checked);
   g('trees') && (g('trees').visible=trees.checked);
   g('landmarks') && (g('landmarks').visible=landmarks.checked);
@@ -851,6 +969,7 @@ outline.onchange=applyToggles; labels.onchange=applyToggles; buildings.onchange=
 trees.onchange=applyToggles; roads.onchange=applyToggles;
 drain.onchange=applyToggles; viewshed.onchange=applyToggles; nbrs.onchange=applyToggles;
 soilsT.onchange=applyToggles; landmarks.onchange=applyToggles;
+{ const hm=document.getElementById('housemodel'); if(hm) hm.onchange=applyToggles; }
 
 // surface mode: swap material/colors in place — camera never resets
 const b64TexCache={};
