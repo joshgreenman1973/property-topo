@@ -33,6 +33,10 @@
   .row label { color:var(--mut); cursor:help; border-bottom:1px dotted #4c545c; }
   .row .val { font-variant-numeric:tabular-nums; }
   input[type=range] { width:100%; accent-color:var(--accent); margin:0; }
+  #playSun { width:100%; margin-top:9px; padding:7px; font-size:12px; cursor:pointer;
+    background:#1c2333; color:var(--txt); border:1px solid var(--line); border-radius:7px; }
+  #playSun:hover { border-color:var(--accent); }
+  #playSun.on { background:var(--gold); color:#0d1117; border-color:var(--gold); font-weight:600; }
   .toggle { display:flex; align-items:center; gap:8px; font-size:12px; margin:11px 0 2px; cursor:pointer; color:var(--mut); }
   .toggle span { cursor:help; border-bottom:1px dotted #4c545c; }
   .toggle input { accent-color:var(--accent); width:15px; height:15px; }
@@ -117,7 +121,8 @@
     <div class="row"><label data-tip="Month of the year. The sun rides high in June, low in December &mdash; watch shadow lengths change.">Month</label><span class="val" id="monVal">Jun</span></div>
     <input type="range" id="mon" min="1" max="12" step="1" value="6">
     <div class="row"><label data-tip="Hour of day, local solar time (solar noon = sun due south).">Hour</label><span class="val" id="hourVal">3 pm</span></div>
-    <input type="range" id="hour" min="5" max="21" step="0.5" value="15">
+    <input type="range" id="hour" min="3" max="23" step="0.25" value="15">
+    <button id="playSun" data-tip="Animate a full day: the sun rises in the east, arcs across the south and sets in the west while the shadows sweep around. Press again to pause.">&#9654;&nbsp; Play a day</button>
   </div>
 
   <div class="divider"></div>
@@ -947,12 +952,30 @@ const exag=document.getElementById('exag'), sun_=document.getElementById('sun'),
   realsun=document.getElementById('realsun'), mon=document.getElementById('mon'), hour=document.getElementById('hour');
 
 const MONTHS=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-const fmtHour=h=>{ const hh=Math.floor(h), mm=h%1?':30':''; const ap=hh<12?'am':'pm';
+const fmtHour=h=>{ let hh=Math.floor(h), m=Math.round((h-hh)*60); if(m===60){m=0;hh++;}
+  const ap=hh<12?'am':'pm'; const mm=':'+String(m).padStart(2,'0');
   return ((hh+11)%12+1)+mm+' '+ap; };
 realsun.onchange=()=>{ document.getElementById('sunTime').style.display=realsun.checked?'block':'none';
-  sun_.disabled=realsun.checked; updateSun(); };
+  sun_.disabled=realsun.checked; if(!realsun.checked && typeof sunPlay!=='undefined' && sunPlay) setSunPlay(false); updateSun(); };
 mon.oninput=()=>{ document.getElementById('monVal').textContent=MONTHS[parseInt(mon.value)-1]; updateSun(); };
 hour.oninput=()=>{ document.getElementById('hourVal').textContent=fmtHour(parseFloat(hour.value)); updateSun(); };
+// ---- animated day: sweep the hour so the sun rises and sets on its own ----
+let sunPlay=false, sunLast=0;
+const HR_PER_SEC=1.3;               // ~15 s for a full day
+const playBtn=document.getElementById('playSun');
+function setSunPlay(on){
+  sunPlay=on; playBtn.classList.toggle('on',on);
+  playBtn.innerHTML = on ? '&#10073;&#10073;&nbsp; Pause' : '&#9654;&nbsp; Play a day';
+  if(on){ if(!realsun.checked){ realsun.checked=true; realsun.onchange(); } sunLast=performance.now(); }
+}
+playBtn.onclick=()=>setSunPlay(!sunPlay);
+function stepSun(now){
+  if(!sunPlay) return;
+  const dt=(now-sunLast)/1000; sunLast=now;
+  let h=parseFloat(hour.value)+dt*HR_PER_SEC;
+  if(h>parseFloat(hour.max)) h=parseFloat(hour.min);   // loop to next dawn
+  hour.value=h; document.getElementById('hourVal').textContent=fmtHour(h); updateSun();
+}
 
 const tabs=document.getElementById('tabs');
 Object.keys(window.TERRAIN).forEach((k,i)=>{ const el=document.createElement('div');
@@ -1342,6 +1365,7 @@ addEventListener('resize',()=>{ camera.aspect=innerWidth/innerHeight; camera.upd
 renderer.domElement.addEventListener('pointerdown',()=>tween=null);
 renderer.domElement.addEventListener('wheel',()=>tween=null,{passive:true});
 function animate(){ requestAnimationFrame(animate);
+  stepSun(performance.now());
   if(tween){ const k=Math.min(1,(performance.now()-tween.s)/tween.d);
     const e=k<0.5?2*k*k:-1+(4-2*k)*k;
     camera.position.lerpVectors(tween.p0,tween.p1,e);
