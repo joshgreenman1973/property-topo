@@ -384,7 +384,7 @@ const HOUSE_PLANS = {
 const H_SLAB=0.9, H_GAP=10.5, H_WALL=9;             // house dimensions, feet
 const H_ROT_C=[-0.41,-6.6], H_ROT_R=7.2;            // rotunda center + radius, plan feet
 // fit: plan (X,Y) feet -> parcel (X,Z) meters.  Tunable live via window.__houseFit.
-let houseFit = { s:0.3197, deg:146.9, t0:6.90, t1:-21.69, baseY:0 };
+let houseFit = { s:0.3048, deg:146.9, t0:6.96, t1:-21.74, baseY:0 };   // true feet->meters scale (was a 5%-inflated centroid fit)
 let houseGroup=null, houseVisible=false;
 function houseMatrix(){
   const {s,deg,t0,t1,baseY}=houseFit, a=deg*Math.PI/180, ca=Math.cos(a), sa=Math.sin(a);
