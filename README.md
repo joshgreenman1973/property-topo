@@ -7,7 +7,7 @@ labels; hover the terrain for live latitude / longitude / elevation.
 - **32 Old South Road, Aquinnah, MA 02535** (Martha's Vineyard, up-island)
 - **10 Abbott Lane, Cornwall-on-Hudson, NY 12520** (Hudson Highlands, below Storm King)
 
-## Data sources (nothing is a black box)
+## Data sources
 
 | Layer | Source | Notes |
 |---|---|---|
@@ -70,10 +70,10 @@ polygons, base64-packed). `index.html` is a self-contained three.js viewer.
   of the subject parcel are filtered; unattributed neighbors are labeled "no owner on
   public roll."
 - **Soils** — USDA SSURGO map units intersecting the parcel (Soil Data Access spatial SQL),
-  draped in color with series name, natural drainage class, and the USDA septic-field
+  draped in color with series name, natural drainage class and the USDA septic-field
   interpretation for the dominant component. Map-unit level, not site-specific.
-- **Administrative geography** — census tract, county, and the local incorporated area
-  (Aquinnah *town*; Cornwall-on-Hudson *village* — the closest equivalent to an NYC NTA for
+- **Administrative geography** — census tract, county and the local incorporated area
+  (Aquinnah *town*; Cornwall-on-Hudson *village* — the closest equivalent to a New York City neighborhood tabulation area for
   places this size) from the US Census Bureau geocoder, shown in the coordinates panel.
 - **Flood zone** — FEMA National Flood Hazard Layer zone at the parcel center.
 - **Wetlands** — USFWS National Wetlands Inventory presence within ~250 m.
@@ -97,8 +97,8 @@ polygons, base64-packed). `index.html` is a self-contained three.js viewer.
 - **Historical imagery time-slider** — in Photo mode, an "Imagery date" slider scrubs through
   dated satellite frames from [Esri World Imagery Wayback](https://livingatlas.arcgis.com/wayback/)
   (2014→2026), each stitched from web-mercator tiles and reprojected onto the terrain tile;
-  near-identical frames are deduped so each step is a real change. See the land, trees and
-  buildings evolve over a decade.
+  near-identical frames are deduped so each step is a real change. The slider shows the land, trees and
+  buildings changing over a decade.
 - **House materials** — wall and roof colors are set from ground truth: Aquinnah from an
   owner photo (weathered gray cedar shingle, ~#a39a90 walls); Cornwall from the real-estate
   listing + aerial (1975 natural-wood contemporary with a dark roof). Snow-swapped in winter.
@@ -137,7 +137,7 @@ polygons, base64-packed). `index.html` is a self-contained three.js viewer.
   canopy tops by ~10 m on Cornwall). The aerial-photo drape still shows the leaf-off look;
   summer imagery (e.g. Google) shows the dense cover the LiDAR confirms. **No streams or
   ponds** were found on either parcel (confirmed against the aerial imagery and hydrography).
-- The published data is address, town, acreage, boundary, elevation, and — added at the
+- The published data is address, town, acreage, boundary, elevation and — added at the
   owner's request — the **names of record and lot sizes of adjoining parcels** (public
   assessor data). Assessed values and mailing addresses are not included.
 
