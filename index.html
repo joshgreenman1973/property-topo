@@ -154,6 +154,7 @@
     <input type="range" id="wb" min="0" max="0" step="1" value="0">
   </div>
   <label class="toggle"><input type="checkbox" id="trees"><span data-tip="A translucent green canopy surface wherever the LiDAR measured vegetation at least 2.5 m tall, drawn at its measured height &mdash; hover to read the height at any spot. Computed from the newest USGS flights (2021 for Aquinnah, 2022 for Cornwall) directly from the raw point clouds. Building footprints are excluded. Both properties are densely wooded. No streams or ponds were found on either parcel.">Trees (canopy)</span></label>
+  <label class="toggle"><input type="checkbox" id="treesInd" checked><span data-tip="Every canopy-top tree on the parcel as its own trunk and crown, at its LiDAR-measured height and crown width. Each tree is a crown top found in the 1 m canopy grid from the newest USGS flight; a watershed around each top gives its crown. Crowns are colored by height (pale = short, deep green = tall) and they turn with the season. Hover a tree for its height and crown width. Only trees at least 5 m tall that reach the canopy are resolved &mdash; smaller trees under the canopy are not visible to LiDAR from above.">Individual trees</span></label>
   <label class="toggle"><input type="checkbox" id="nbrs"><span data-tip="The parcels that share a boundary with this property, from the same official assessor rolls (public record). Each neighbor gets its own color: a flat colored panel around the base of the 3D terrain (like a plat map), a matching label with owner of record and lot size, and a matching swatch in the list below. 'Unknown' means the assessor record has no owner attached (often road or utility strips).">Adjoining owners</span></label>
   <div id="nbList" style="display:none;font-size:11px;line-height:1.55;color:var(--mut);margin:2px 0 4px 23px"></div>
   <label class="toggle"><input type="checkbox" id="soilsT"><span data-tip="Official USDA soil survey (SSURGO) map units on the parcel, draped in color on the terrain with a matching list: soil series name, natural drainage class and the USDA rating for septic-field suitability. Ratings describe the whole map unit, not a specific spot &mdash; a site test can differ. 'Very limited' is common in New England (stones, slope or shallow bedrock) and does not mean unbuildable.">Soils (USDA)</span></label>
@@ -212,7 +213,7 @@
 </div>
 <div id="hint">drag&nbsp;·&nbsp;orbit&nbsp;&nbsp;·&nbsp;&nbsp;scroll&nbsp;·&nbsp;zoom&nbsp;&nbsp;·&nbsp;&nbsp;double-click&nbsp;·&nbsp;fly in&nbsp;&nbsp;·&nbsp;&nbsp;right-drag&nbsp;·&nbsp;pan&nbsp;&nbsp;·&nbsp;&nbsp;hover for lat/long</div>
 
-<script src="terrain_data.js?v=20260705a"></script>
+<script src="terrain_data.js?v=20261103a"></script>
 <script type="importmap">
 { "imports": {
   "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
@@ -268,6 +269,7 @@ scene.add(sun); scene.add(sun.target);
 
 let group, uniforms, D, H, N, half, res, zmin, relief, outerRing, tMats=null, CH=null, canopyTyp=0;
 let colorSets=null, terrainGeo=null, surfMode='elev', parcelRelief=0, roofMats=[], season='summer';
+let treeItems=[], crownMesh=null;   // individual trees: [x,z,h,r] in mesh meters; crown InstancedMesh for hover
 function slopeAspectAt(c,r){ // central differences on the height grid (true meters)
   const c0=Math.max(0,c-1), c1=Math.min(N-1,c+1), r0=Math.max(0,r-1), r1=Math.min(N-1,r+1);
   const gx=(H[r*N+c1]-H[r*N+c0])/((c1-c0)*res);
@@ -685,6 +687,27 @@ function build(key){
     tmesh.name='trees'; tmesh.renderOrder=2; group.add(tmesh);
   }
 
+  // ---- individual trees: trunk + crown per LiDAR crown top, true meters ----
+  treeItems=(D.trees&&D.trees.items)||[]; crownMesh=null;
+  if(treeItems.length){
+    const tgrp=new THREE.Group(); tgrp.name='treesInd';
+    const n=treeItems.length, m4=new THREE.Matrix4(), q=new THREE.Quaternion(), vp=new THREE.Vector3(), vs=new THREE.Vector3();
+    const trunkGeo=new THREE.CylinderGeometry(0.5,0.7,1,7); trunkGeo.translate(0,0.5,0);   // unit height, base at 0
+    const crownGeo=new THREE.SphereGeometry(1,12,9);                                       // unit sphere, scaled per tree
+    const trunkMat=new THREE.MeshStandardMaterial({color:0x5a4634,roughness:0.95,metalness:0});
+    const crownMat=new THREE.MeshStandardMaterial({color:0xffffff,roughness:0.85,metalness:0,transparent:true,opacity:0.96});
+    const trunks=new THREE.InstancedMesh(trunkGeo,trunkMat,n), crowns=new THREE.InstancedMesh(crownGeo,crownMat,n);
+    for(let i=0;i<n;i++){ const [x,z,h,r]=treeItems[i]; const y=sampleH(x,z)*ex;
+      const trunkH=h*0.42, crownH=h-trunkH*0.85;      // crown overlaps the trunk top a little
+      vp.set(x,y,z); vs.set(Math.max(0.35,h*0.025),trunkH,Math.max(0.35,h*0.025)); m4.compose(vp,q,vs); trunks.setMatrixAt(i,m4);
+      vp.set(x,y+trunkH*0.85+crownH/2,z); vs.set(r,crownH/2,r*0.92); m4.compose(vp,q,vs); crowns.setMatrixAt(i,m4);
+    }
+    trunks.castShadow=true; crowns.castShadow=true; crowns.receiveShadow=true;
+    trunks.name='trunks'; crowns.name='crowns';
+    tgrp.add(trunks); tgrp.add(crowns); group.add(tgrp); crownMesh=crowns;
+    colorCrowns();
+  }
+
   // ---- roads: OSM ways draped as ribbons, name labels floated above ----
   const rgroup=new THREE.Group(); rgroup.name='roads';
   const ROADW={trunk:9,primary:8,secondary:7,tertiary:6,unclassified:5,residential:5,service:2.8,track:2.5,path:1.5,footway:1.5};
@@ -852,6 +875,7 @@ function applyToggles(){ if(!group) return;
   if(houseVisible && g('buildings')) g('buildings').visible=false;
   g('roads') && (g('roads').visible=roads.checked);
   g('trees') && (g('trees').visible=trees.checked);
+  g('treesInd') && (g('treesInd').visible=treesInd.checked);
   g('landmarks') && (g('landmarks').visible=landmarks.checked);
   g('neighbors') && (g('neighbors').visible=nbrs.checked);
   const nbf=D._nbf||D.neighbors||[];
@@ -904,6 +928,7 @@ function fillFacts(){ document.getElementById('facts').innerHTML=
     return `<div><span class="k" data-tip="Structures on the parcel from FEMA's USA Structures inventory, drawn at true footprint and height. 'Roof sections' appear where FEMA's imagery split one house whose middle is hidden under trees.">Buildings</span><b>${nb}</b> <span style="color:var(--mut)">${parts>nb?parts+' roof sections &middot; ':''}tallest ${Math.max(...D.buildings.map(b=>b.height)).toFixed(0)} m &middot; ${D.buildings[0].height_src.includes('LiDAR')?'LiDAR height':'est. height'}</span></div>`; })():'')+
   (()=>{ const rn=[...new Set((D.roads||[]).filter(r=>r.name).map(r=>r.name))];
     return rn.length?`<div><span class="k" data-tip="Named roads within this view, from OpenStreetMap.">Roads</span><b>${rn.join(', ')}</b></div>`:''; })()+
+  (D.trees&&D.trees.n?`<div><span class="k" data-tip="${D.trees.src}. Hover any tree in the 3D view for its own height and crown width.">Trees</span><b>${D.trees.n}</b> <span style="color:var(--mut)">canopy-top crowns &middot; median ${D.trees.median_h.toFixed(0)} m &middot; tallest ${D.trees.max_h.toFixed(0)} m (${(D.trees.max_h*3.281).toFixed(0)} ft) &middot; LiDAR ${D.canopy_yr}</span></div>`:'')+
   (canopyTyp?`<div><span class="k" data-tip="Median height of the tree canopy on the parcel, measured by the newest USGS LiDAR flight directly from the point cloud.">Tree canopy</span><b>~${canopyTyp.toFixed(0)} m</b> <span style="color:var(--mut)">median &middot; LiDAR ${D.canopy_yr||'2013-14'}</span></div>`:'')+
   (D.flood?`<div><span class="k" data-tip="FEMA National Flood Hazard Layer zone at the property center. Zone X means outside both the 1%-annual-chance (100-year) and 0.2% (500-year) flood areas &mdash; the lowest hazard class.">Flood zone</span><b>${D.flood}</b> <span style="color:var(--mut)">FEMA</span></div>`:'')+
   (D.wetlands?`<div><span class="k" data-tip="US Fish &amp; Wildlife Service National Wetlands Inventory, checked within ~250 m of the property center. NWI is mapped from imagery at survey scale; small seeps can exist unmapped.">Wetlands</span><b>${D.wetlands}</b> <span style="color:var(--mut)">USFWS NWI</span></div>`:'')+
@@ -946,7 +971,7 @@ const exag=document.getElementById('exag'), sun_=document.getElementById('sun'),
   contours=document.getElementById('contours'), ci=document.getElementById('ci'),
   outline=document.getElementById('outline'), labels=document.getElementById('labels'),
   buildings=document.getElementById('buildings'), wire=document.getElementById('wire'),
-  trees=document.getElementById('trees'), roads=document.getElementById('roads'),
+  trees=document.getElementById('trees'), treesInd=document.getElementById('treesInd'), roads=document.getElementById('roads'),
   drain=document.getElementById('drain'), viewshed=document.getElementById('viewshed'),
   nbrs=document.getElementById('nbrs'), soilsT=document.getElementById('soilsT'),
   landmarks=document.getElementById('landmarks'),
@@ -990,7 +1015,7 @@ sun_.oninput=()=>{ document.getElementById('sunVal').innerHTML=sun_.value+'&deg;
 contours.onchange=()=>{ if(uniforms) uniforms.uContourOn.value=contours.checked?1:0; };
 ci.oninput=()=>{ const v=CI_STEPS[+ci.value]; document.getElementById('ciVal').textContent=v+' m'; if(uniforms) uniforms.uInterval.value=v; };
 outline.onchange=applyToggles; labels.onchange=applyToggles; buildings.onchange=applyToggles;
-trees.onchange=applyToggles; roads.onchange=applyToggles;
+trees.onchange=applyToggles; treesInd.onchange=applyToggles; roads.onchange=applyToggles;
 drain.onchange=applyToggles; viewshed.onchange=applyToggles; nbrs.onchange=applyToggles;
 soilsT.onchange=applyToggles; landmarks.onchange=applyToggles;
 { const hm=document.getElementById('housemodel'); if(hm) hm.onchange=applyToggles; }
@@ -1027,8 +1052,24 @@ function setSurf(mode){
   updateLegend();
 }
 
+// crown colors: height ramp in summer (pale short -> deep tall), per-tree autumn mix, bare gray in winter
+const FALL_RGB=[[201,111,47],[217,161,59],[165,70,46],[122,143,60],[196,90,40],[224,178,74]];
+function colorCrowns(){
+  if(!crownMesh) return; const c=new THREE.Color(), n=treeItems.length;
+  const hs=treeItems.map(t=>t[2]); const lo=Math.min(...hs), hi=Math.max(...hs);
+  for(let i=0;i<n;i++){ const t=hi>lo?(treeItems[i][2]-lo)/(hi-lo):0.5;
+    if(season==='winter') c.setRGB(0.62,0.6,0.58);
+    else if(season==='fall'){ const f=FALL_RGB[(i*2654435761>>>0)%FALL_RGB.length]; c.setRGB(f[0]/255,f[1]/255,f[2]/255); }
+    else if(season==='spring') c.setRGB(0.62-0.2*t, 0.8-0.15*t, 0.38-0.1*t);
+    else c.setRGB(0.42-0.28*t, 0.66-0.26*t, 0.26-0.1*t);
+    crownMesh.setColorAt(i,c); }
+  crownMesh.instanceColor.needsUpdate=true;
+  crownMesh.material.opacity= season==='winter'?0.28:0.96; crownMesh.material.needsUpdate=true;
+}
+
 // ---- seasons: colors + light; measurements untouched ----
 function applySeason(){
+  colorCrowns();
   document.querySelectorAll('.szn').forEach(b=>b.classList.toggle('active',b.dataset.szn===season));
   const t=group&&group.getObjectByName('trees');
   if(t){ const m=t.material;
@@ -1334,8 +1375,17 @@ const ray=new THREE.Raycaster(), ptr=new THREE.Vector2(), hoverEl=document.getEl
 renderer.domElement.addEventListener('pointermove',(e)=>{
   ptr.x=(e.clientX/innerWidth)*2-1; ptr.y=-(e.clientY/innerHeight)*2+1;
   ray.setFromCamera(ptr,camera); const m=group&&group.children[0];
+  const tg=group&&group.getObjectByName('treesInd');
+  const thit=(tg&&tg.visible&&crownMesh)?ray.intersectObject(crownMesh,false):[];
   const hit=m?ray.intersectObject(m,false):[];
-  if(hit.length){ const p=hit[0].point; const [lo,la]=lonlat(p.x,p.z); const el=sampleH(p.x,p.z)+zmin;
+  if(thit.length && (!hit.length || thit[0].distance<=hit[0].distance)){
+    const i=thit[0].instanceId, [x,z,h,r]=treeItems[i]; const [lo,la]=lonlat(x,z);
+    const rank=i+1;   // items are sorted tallest first
+    hoverEl.style.display='block';
+    let hx=e.clientX+14; if(hx+170>innerWidth) hx=e.clientX-170;
+    hoverEl.style.left=hx+'px'; hoverEl.style.top=(e.pointerType==='touch'?e.clientY-72:e.clientY+14)+'px';
+    hoverEl.innerHTML=`<span class="g">Tree</span> <b>${h.toFixed(0)} m</b> tall (${(h*3.281).toFixed(0)} ft)<br>crown <b>~${(2*r).toFixed(0)} m</b> wide &middot; ${rank<=10?`<b>#${rank}</b> tallest on the lot`:`no. ${rank} of ${treeItems.length} by height`}<br><span class="g">${fmtLat(la)}, ${fmtLon(lo)}</span>`; }
+  else if(hit.length){ const p=hit[0].point; const [lo,la]=lonlat(p.x,p.z); const el=sampleH(p.x,p.z)+zmin;
     const touch=e.pointerType==='touch';
     let chm=0, slopeTxt='';
     const gc=Math.min(N-1,Math.max(0,Math.round((p.x+half)/res-0.5)));
